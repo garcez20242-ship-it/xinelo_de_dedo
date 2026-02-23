@@ -159,3 +159,21 @@ with tab5:
     if escolha == "Modelo":
         with st.form("c_mod"):
             m_nome = st.text_input("Nome do Modelo")
+            st.write("Quantidades:")
+            cols = st.columns(5)
+            q_dic = {t: cols[i%5].number_input(t, min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
+            if st.form_submit_button("Salvar Modelo"):
+                if m_nome:
+                    nl = {"Modelo": m_nome}; nl.update(q_dic)
+                    df_estoque = pd.concat([df_estoque, pd.DataFrame([nl])], ignore_index=True)
+                    atualizar_planilha("Estoque", df_estoque)
+    else:
+        with st.form("c_cli"):
+            cn = st.text_input("Nome"); cl = st.text_input("Loja")
+            ct = st.text_input("Telefone"); cc = st.text_input("Cidade")
+            if st.form_submit_button("Salvar Cliente"):
+                if cn:
+                    nc = pd.DataFrame([{"Nome": cn, "Loja": cl, "Telefone": ct, "Cidade": cc}])
+                    df_clientes = pd.concat([df_clientes, nc], ignore_index=True)
+                    atualizar_planilha("Clientes", df_clientes)
+                    

@@ -9,8 +9,7 @@ st.set_page_config(page_title="Gestão de Sandálias Nuvem", layout="wide", page
 TAMANHOS_PADRAO = ["25/26", "27/28", "29/30", "31/32", "33/34", "35/36", "37/38", "39/40", "41/42", "43/44"]
 
     # --- CONEXÃO TESTE (LINK DIRETO) ---
-URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1ZLN9wcg89UBcBZrViLmuAK-fU9GtMEMgNlGk7F6VVUs/edit?usp=sharing"
-
+URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1ZLN9wcg89UBcBZrViLmuAK-fU9GtMEMgNlGk7F6VVUs/edit"
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     # Aqui forçamos o link direto caso o Secret falhe
@@ -128,3 +127,4 @@ with abas[1]:
 # --- ABA 3: CADASTRO DE CLIENTES ---
 with abas[2]:
     st.subheader("👥 Cadastro de Clientes")
+

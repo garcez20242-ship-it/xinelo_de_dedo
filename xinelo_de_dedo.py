@@ -18,9 +18,9 @@ def carregar_dados():
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # Lendo as abas e removendo linhas/colunas totalmente vazias (previne erro 400)
-    estoque = conn.read(spreadsheet=URL_PLANILHA, worksheet="Estoque", ttl=0).dropna(how='all').dropna(axis=1, how='all')
-    pedidos = conn.read(spreadsheet=URL_PLANILHA, worksheet="Pedidos", ttl=0).dropna(how='all').dropna(axis=1, how='all')
-    clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="Clientes", ttl=0).dropna(how='all').dropna(axis=1, how='all')
+    estoque = conn.read(spreadsheet=URL_PLANILHA, worksheet="estoque", ttl=0).dropna(how='all').dropna(axis=1, how='all')
+    pedidos = conn.read(spreadsheet=URL_PLANILHA, worksheet="pedidos", ttl=0).dropna(how='all').dropna(axis=1, how='all')
+    clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="clientes", ttl=0).dropna(how='all').dropna(axis=1, how='all')
     
     # Limpando espaços extras nos nomes das colunas
     estoque.columns = estoque.columns.str.strip()
@@ -181,3 +181,4 @@ with abas[4]:
                 st.cache_data.clear()
                 st.success("Modelo criado!")
                 st.rerun()
+

@@ -76,4 +76,5 @@ with abas[1]:
 
         st.write("### 🛒 Carrinho")
         i1, i2, i3, i4 = st.columns([3, 2, 2, 1])
-        mod_v = i1.selectbox("Escolher Modelo", df_estoque['Modelo'].
+        mod_v = i1.selectbox("Escolher Modelo", df_estoque['Modelo'].)
+

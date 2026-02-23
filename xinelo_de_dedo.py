@@ -19,7 +19,8 @@ try:
 # LINHAS 18 A 20:
     df_estoque = conn.read(spreadsheet=URL_PLANILHA, worksheet="Estoque", ttl=0)
     df_pedidos = conn.read(spreadsheet=URL_PLANILHA, worksheet="Pedidos", ttl=0)
-    df_clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="Clientes", ttl=0)except Exception as e:
+    df_clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="Clientes", ttl=0)
+except Exception as e:
     st.error("### ❌ Erro de Conexão")
     st.write(f"Detalhe técnico: {e}")
     st.info("Dica: Verifique se as abas na planilha se chamam exatamente: Estoque, Pedidos e Clientes.")
@@ -65,4 +66,5 @@ with abas[0]:
         conn.update(spreadsheet=URL_PLANILHA, worksheet="Estoque", data=df_estoque)
         st.success("Estoque atualizado!")
         st.rerun()
+
 

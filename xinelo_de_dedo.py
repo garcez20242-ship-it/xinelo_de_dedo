@@ -152,4 +152,54 @@ with tab3:
             with st.expander(f"👤 {row['Nome']}"):
                 col_a, col_b = st.columns(2)
                 novo_cn = col_a.text_input("Nome Cliente", value=row['Nome'], key=f"c_n_{idx}")
-                novo_cl = col_b.text_input("Lo
+                novo_cl = col_b.text_input("Loja", value=row['Loja'], key=f"c_l_{idx}")
+                
+                c1, c2 = st.columns(2)
+                if c1.button("Atualizar Cadastro ✅", key=f"c_up_{idx}"):
+                    df_clientes.at[idx, 'Nome'] = novo_cn
+                    df_clientes.at[idx, 'Loja'] = novo_cl
+                    atualizar_planilha("Clientes", df_clientes)
+                
+                if c2.button("Excluir Cliente 🗑️", key=f"c_dl_{idx}"):
+                    df_clientes = df_clientes.drop(idx)
+                    atualizar_planilha("Clientes", df_clientes)
+
+# --- ABA 4: HISTÓRICO ---
+with tab4:
+    st.subheader("📜 Histórico de Pedidos")
+    if not df_pedidos.empty:
+        st.dataframe(df_pedidos[["Cliente", "Data", "Resumo do Pedido"]].sort_index(ascending=False), 
+                     use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma venda realizada ainda.")
+
+# --- ABA 5: CADASTRO ---
+with tab5:
+    st.subheader("✨ Novos Registros")
+    escolha = st.radio("O que deseja cadastrar?", ["Modelo", "Cliente"], horizontal=True)
+    
+    if escolha == "Modelo":
+        with st.form("cad_mod_form"):
+            m_n = st.text_input("Nome do Modelo")
+            m_i = st.text_input("Link da Imagem (URL)")
+            st.write("Quantidades Iniciais:")
+            cols = st.columns(5)
+            q_dic = {t: cols[i%5].number_input(f"Tam {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
+            
+            if st.form_submit_button("Salvar Modelo"):
+                if m_n:
+                    nl = {"Modelo": m_n, "Imagem": m_i}; nl.update(q_dic)
+                    df_estoque = pd.concat([df_estoque, pd.DataFrame([nl])], ignore_index=True)
+                    atualizar_planilha("Estoque", df_estoque)
+    else:
+        with st.form("cad_cli_form"):
+            cn = st.text_input("Nome do Cliente")
+            cl = st.text_input("Nome da Loja")
+            ct = st.text_input("Telefone")
+            cc = st.text_input("Cidade")
+            
+            if st.form_submit_button("Salvar Cliente"):
+                if cn:
+                    nc = pd.DataFrame([{"Nome": cn, "Loja": cl, "Telefone": ct, "Cidade": cc}])
+                    df_clientes = pd.concat([df_clientes, nc], ignore_index=True)
+                    atualizar_planilha("Clientes", df_clientes)

@@ -9,8 +9,8 @@ st.set_page_config(page_title="Gestão de Sandálias Nuvem", layout="wide", page
 # LINK DIRETO DA SUA PLANILHA (Link limpo para evitar Erro 400)
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1ZLN9wcg89UBcBZrViLmuAK-fU9GtMEMgNlGk7F6VVUs/edit"
 
-TAMANHOS_PADRAO = ["25/26", "27/28", "29/30", "31/32", "33/34", "35/36", "37/38", "39/40", "41/42", "43/44"]
-
+# No seu código, mude esta linha para:
+TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
 # --- CONEXÃO GOOGLE SHEETS ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -77,5 +77,6 @@ with abas[1]:
         st.write("### 🛒 Carrinho")
         i1, i2, i3, i4 = st.columns([3, 2, 2, 1])
         mod_v = i1.selectbox("Escolher Modelo", df_estoque['Modelo'])
+
 
 

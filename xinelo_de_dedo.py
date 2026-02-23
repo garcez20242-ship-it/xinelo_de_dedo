@@ -3,33 +3,39 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURAÇÃO ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Gestão de Sandálias Nuvem", layout="wide", page_icon="👡")
 
-# LINK DIRETO DA SUA PLANILHA (Link limpo para evitar Erro 400)
+# --- CONEXÃO DIRETA COM A PLANILHA ---
+# Link limpo para evitar Erro 400
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1ZLN9wcg89UBcBZrViLmuAK-fU9GtMEMgNlGk7F6VVUs/edit"
 
-# No seu código, mude esta linha para:
+# Tamanhos atualizados para usar hífen conforme sua planilha
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
-# --- CONEXÃO GOOGLE SHEETS ---
+
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    # Lendo as abas usando o link direto
+    # ttl=0 garante que o app sempre busque dados novos e não use cache com erro
     df_estoque = conn.read(spreadsheet=URL_PLANILHA, worksheet="Estoque", ttl=0)
     df_pedidos = conn.read(spreadsheet=URL_PLANILHA, worksheet="Pedidos", ttl=0)
     df_clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="Clientes", ttl=0)
 except Exception as e:
-    st.error(f"Erro ao acessar as abas. Verifique se os nomes 'Estoque', 'Pedidos' e 'Clientes' estão corretos na planilha. Detalhe: {e}")
+    st.error("### ❌ Erro de Conexão")
+    st.write(f"Detalhe técnico: {e}")
+    st.info("Dica: Verifique se as abas na planilha se chamam exatamente: Estoque, Pedidos e Clientes.")
     st.stop()
 
-# --- SIDEBAR (ALERTAS) ---
+# --- SIDEBAR (ALERTAS DE ESTOQUE BAIXO) ---
 with st.sidebar:
-    st.header("🔔 Alertas de Estoque")
+    st.header("🔔 Alertas")
     alertas = []
+    # Verifica se há menos de 3 unidades em qualquer tamanho
     for index, row in df_estoque.iterrows():
         for tam in TAMANHOS_PADRAO:
-            if tam in row and pd.to_numeric(row[tam], errors='coerce') < 3:
-                alertas.append(f"{row['Modelo']} ({tam}): {row[tam]} un")
+            if tam in row:
+                qtd = pd.to_numeric(row[tam], errors='coerce')
+                if qtd < 3:
+                    alertas.append(f"{row['Modelo']} ({tam}): {int(qtd) if not pd.isna(qtd) else 0} un")
     
     if alertas:
         for a in alertas: st.warning(a)
@@ -53,30 +59,9 @@ with abas[0]:
     
     if c4.button("Repor ✅"):
         idx = df_estoque.index[df_estoque['Modelo'] == mod_rep][0]
-        df_estoque.at[idx, tam_rep] = int(df_estoque.at[idx, tam_rep]) + qtd_rep
+        # Converte para int para garantir que o cálculo funcione
+        atual = int(pd.to_numeric(df_estoque.at[idx, tam_rep], errors='coerce') or 0)
+        df_estoque.at[idx, tam_rep] = atual + qtd_rep
         conn.update(spreadsheet=URL_PLANILHA, worksheet="Estoque", data=df_estoque)
         st.success("Estoque atualizado!")
         st.rerun()
-
-# --- ABA 2: VENDA (COM DROPDOWN DE CLIENTES) ---
-with abas[1]:
-    st.subheader("📝 Registrar Pedido")
-    
-    if df_clientes.empty:
-        st.warning("Cadastre um cliente na aba 'Clientes' antes de realizar uma venda.")
-    else:
-        cliente_selecionado = st.selectbox("Selecionar Cliente", df_clientes['Nome'].unique())
-        dados_c = df_clientes[df_clientes['Nome'] == cliente_selecionado].iloc[0]
-        st.info(f"📍 **Loja:** {dados_c['Loja']} | **Cidade:** {dados_c['Cidade']}")
-
-        st.divider()
-        
-        if 'carrinho' not in st.session_state:
-            st.session_state.carrinho = []
-
-        st.write("### 🛒 Carrinho")
-        i1, i2, i3, i4 = st.columns([3, 2, 2, 1])
-        mod_v = i1.selectbox("Escolher Modelo", df_estoque['Modelo'])
-
-
-

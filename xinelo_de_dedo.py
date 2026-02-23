@@ -8,14 +8,17 @@ st.set_page_config(page_title="Gestão de Sandálias Nuvem", layout="wide", page
 
 TAMANHOS_PADRAO = ["25/26", "27/28", "29/30", "31/32", "33/34", "35/36", "37/38", "39/40", "41/42", "43/44"]
 
-# --- CONEXÃO GOOGLE SHEETS ---
+    # --- CONEXÃO TESTE (LINK DIRETO) ---
+URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1ZLN9wcg89UBcBZrViLmuAK-fU9GtMEMgNlGk7F6VVUs/edit?usp=sharing"
+
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df_estoque = conn.read(worksheet="Estoque", ttl=0)
-    df_pedidos = conn.read(worksheet="Pedidos", ttl=0)
-    df_clientes = conn.read(worksheet="Clientes", ttl=0) # Nova aba de clientes
+    # Aqui forçamos o link direto caso o Secret falhe
+    df_estoque = conn.read(spreadsheet=URL_PLANILHA, worksheet="Estoque", ttl=0)
+    df_pedidos = conn.read(spreadsheet=URL_PLANILHA, worksheet="Pedidos", ttl=0)
+    df_clientes = conn.read(spreadsheet=URL_PLANILHA, worksheet="Clientes", ttl=0)
 except Exception as e:
-    st.error("Erro de Conexão: Configure o link da planilha nos Secrets do Streamlit Cloud.")
+    st.error(f"Erro detalhado: {e}")
     st.stop()
 
 # --- SIDEBAR (ALERTAS) ---

@@ -108,4 +108,5 @@ with abas[4]:
     with st.form("novo_modelo"):
         nome_m = st.text_input("Nome do Modelo")
         url_m = st.text_input("Link da Imagem (URL)")
-        st.caption("Dica: Use links do Imgur, PostImages ou fotos
+        st.caption("Dica: Use links do Imgur, PostImages ou fotos")
+

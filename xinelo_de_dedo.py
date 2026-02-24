@@ -58,230 +58,182 @@ def atualizar_planilha(aba, dataframe):
     conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
     st.cache_data.clear()
 
-# --- BARRA LATERAL: ALERTAS ---
+# --- ESTILIZAÇÃO DE TABELA ---
+def colorir_estoque(val):
+    try:
+        v = int(float(val))
+        if v == 0: return 'background-color: #ff4b4b; color: white'
+        if v <= 3: return 'background-color: #ffeb3b; color: black'
+        return ''
+    except: return ''
+
+# --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("💳 Alertas de Pagamento")
+    st.header("💳 Alertas Financeiros")
     hoje = datetime.now().date()
-    tem_pagamento = False
+    tem_pag = False
+    
+    # Pagamentos
     if not df_lembretes.empty:
         df_l_temp = df_lembretes.copy()
-        # Tenta ler formato BR ou ISO para comparação
         df_l_temp['Data_DT'] = pd.to_datetime(df_l_temp['Data'], dayfirst=True, errors='coerce').dt.date
-        pendentes = df_l_temp[df_l_temp['Data_DT'] <= hoje]
-        for _, row in pendentes.iterrows():
-            st.error(f"**{row['Nome']}**\nVencimento: {row['Data']}\nValor: R$ {limpar_valor(row['Valor']):.2f}")
-            tem_pagamento = True
-    if not tem_pagamento:
-        st.success("✅ Nenhum pagamento para hoje!")
-    
-    st.divider()
+        pends = df_l_temp[df_l_temp['Data_DT'] <= hoje]
+        for _, r in pends.iterrows():
+            st.error(f"**CONTA:** {r['Nome']} ({r['Data']})")
+            tem_pag = True
+            
+    # Cobrança
+    if not df_pedidos.empty:
+        inad = df_pedidos[df_pedidos['Status Pagto'] == 'Pendente']
+        if not inad.empty:
+            st.warning("🔴 **CLIENTES PENDENTES:**")
+            for cli in inad['Cliente'].unique():
+                st.write(f"- {cli}")
+            tem_pag = True
+    if not tem_pag: st.success("✅ Financeiro em dia")
 
-    st.header("⚠️ Alertas de Estoque")
+    st.divider()
+    st.header("⚠️ Estoque Crítico")
     alerta_vazio = True
     if not df_estoque.empty:
         for _, row in df_estoque.iterrows():
+            criticos = []
             for tam in TAMANHOS_PADRAO:
                 qtd = int(float(row[tam])) if str(row[tam]) != "" else 0
-                if 0 < qtd <= 3:
-                    st.warning(f"**{row['Modelo']}**\nTam: {tam} | Qtd: {qtd}")
-                    alerta_vazio = False
-                elif qtd == 0:
-                    st.error(f"**{row['Modelo']}**\nTam: {tam} | ESGOTADO")
-                    alerta_vazio = False
-    if alerta_vazio:
-        st.success("✅ Estoque em dia!")
+                if qtd <= 3:
+                    status = "ESGOTADO" if qtd == 0 else f"{qtd} un"
+                    criticos.append(f"{tam} ({status})")
+            if criticos:
+                st.warning(f"**{row['Modelo']}**\n{', '.join(criticos)}")
+                alerta_vazio = False
+    if alerta_vazio: st.success("✅ Estoque abastecido")
 
-# --- INTERFACE PRINCIPAL ---
+# --- INTERFACE ---
 st.title("🩴 Xinelo de Dedo - Gestão Pro")
-
 tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
 
-# --- TAB 1: ESTOQUE ---
 with tab1:
-    if 'carrinho_ent' not in st.session_state: st.session_state.carrinho_ent = []
-    c1, c2 = st.columns([1.3, 2])
+    c1, c2 = st.columns([1, 2])
     with c1:
-        st.subheader("📦 Entrada de Mercadoria")
-        m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["-"], key="sel_mod_est")
-        t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_est")
-        col_q, col_v = st.columns(2)
-        q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="num_q_est")
-        v_uni = col_v.number_input("R$ Unit. Compra", min_value=0.0, format="%.2f", key="num_v_est")
-        if st.button("➕ Add Compra", key="btn_add_est"):
-            st.session_state.carrinho_ent.append({"Modelo": m_aq, "Tamanho": t_aq, "Qtd": q_aq, "Unit": v_uni, "Sub": q_aq*v_uni})
+        st.subheader("📦 Entrada")
+        m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["-"], key="ent_mod")
+        t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="ent_tam")
+        q_aq = st.number_input("Qtd", min_value=1, step=1)
+        v_uni = st.number_input("R$ Unit. Compra", min_value=0.0)
+        if st.button("Confirmar Entrada"):
+            idx = df_estoque.index[df_estoque['Modelo'] == m_aq][0]
+            df_estoque.at[idx, t_aq] = int(float(df_estoque.at[idx, t_aq])) + q_aq
+            atualizar_planilha("Estoque", df_estoque)
+            atualizar_planilha("Aquisicoes", pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo": f"{m_aq}({t_aq})x{q_aq}", "Valor Total": q_aq*v_uni}])], ignore_index=True))
             st.rerun()
-        for i, item in enumerate(st.session_state.carrinho_ent):
-            cl_del, cl_txt = st.columns([0.08, 0.92])
-            if cl_del.button("🗑️", key=f"de_ent_{i}"): st.session_state.carrinho_ent.pop(i); st.rerun()
-            cl_txt.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - **R$ {item['Sub']:.2f}**")
-        if st.session_state.carrinho_ent:
-            total_c = sum(it['Sub'] for it in st.session_state.carrinho_ent)
-            if st.button(f"✅ Confirmar R$ {total_c:.2f}", type="primary", key="btn_conf_est"):
-                df_e_new = df_estoque.copy()
-                res_f = []
-                for it in st.session_state.carrinho_ent:
-                    idx = df_e_new.index[df_e_new['Modelo'] == it['Modelo']][0]
-                    val = int(float(df_e_new.at[idx, it['Tamanho']])) if str(df_e_new.at[idx, it['Tamanho']]) != "" else 0
-                    df_e_new.at[idx, it['Tamanho']] = val + it['Qtd']
-                    res_f.append(f"{it['Modelo']}({it['Tamanho']})x{it['Qtd']}")
-                atualizar_planilha("Estoque", df_e_new)
-                atualizar_planilha("Aquisicoes", pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo": " | ".join(res_f), "Valor Total": total_c}])], ignore_index=True))
-                st.session_state.carrinho_ent = []; st.success("Entrada realizada!"); st.rerun()
     with c2:
         st.subheader("📋 Inventário")
-        for idx, row in df_estoque.iterrows():
-            cl_del, cl_txt = st.columns([0.08, 0.92])
-            if cl_del.button("🗑️", key=f"ex_mod_inv_{idx}"): atualizar_planilha("Estoque", df_estoque.drop(idx)); st.rerun()
-            cl_txt.write(f"**{row['Modelo']}**")
-        st.dataframe(df_estoque, hide_index=True)
+        if not df_estoque.empty:
+            for idx, row in df_estoque.iterrows():
+                c_del, c_txt = st.columns([0.1, 0.9])
+                if c_del.button("🗑️", key=f"del_inv_{idx}"):
+                    atualizar_planilha("Estoque", df_estoque.drop(idx)); st.rerun()
+                c_txt.write(f"**{row['Modelo']}**")
+            st.dataframe(df_estoque.style.applymap(colorir_estoque, subset=TAMANHOS_PADRAO), hide_index=True)
 
-# --- TAB CADASTRO ---
 with tab_cad:
-    st.subheader("✨ Cadastrar Novo Modelo")
-    with st.form("f_cad_mod"):
-        n_m = st.text_input("Nome do Modelo")
+    st.subheader("✨ Novo Modelo")
+    with st.form("cad"):
+        n_m = st.text_input("Nome")
         cols = st.columns(5)
         ipts = {t: cols[i%5].number_input(f"T {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
-        if st.form_submit_button("Finalizar Cadastro"):
-            if n_m:
-                ni = {"Modelo": n_m}; ni.update(ipts)
-                atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.success("Cadastrado!"); st.rerun()
+        if st.form_submit_button("Cadastrar"):
+            ni = {"Modelo": n_m}; ni.update(ipts)
+            atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.rerun()
 
-# --- TAB 2: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
     with c1:
-        st.subheader("🛒 Nova Venda")
-        v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique(), key="s_cli_v") if not df_clientes.empty else st.text_input("Cliente", key="i_cli_v")
-        v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="s_mod_v")
-        v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="s_tam_v")
+        v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["-"])
+        v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["-"])
+        v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO)
         disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam].values[0])) if not df_estoque.empty else 0
         st.metric("Disponível", disp)
-        v_qtd = st.number_input("Qtd", min_value=0, max_value=disp, step=1, key="n_qtd_v")
-        v_pre = st.number_input("R$ Unit. Venda", min_value=0.0, format="%.2f", key="n_pre_v")
-        if st.button("➕ Add Item", key="b_add_v"):
+        v_qtd = st.number_input("Venda Qtd", min_value=0, max_value=disp)
+        v_pre = st.number_input("R$ Unit.", min_value=0.0)
+        if st.button("➕ Adicionar"):
             if v_qtd > 0:
                 st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Preco": v_pre, "Sub": v_qtd*v_pre})
                 st.rerun()
     with c2:
-        st.subheader("📄 Carrinho de Venda")
-        for idx, it in enumerate(st.session_state.carrinho_v):
-            cl_d, cl_t = st.columns([0.1, 0.9])
-            if cl_d.button("🗑️", key=f"dv_v_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
-            cl_t.write(f"{it['Mod']} ({it['Tam']}) x{it['Qtd']} - **R$ {it['Sub']:.2f}**")
+        for i, it in enumerate(st.session_state.carrinho_v):
+            if st.button("🗑️", key=f"cv_{i}"): st.session_state.carrinho_v.pop(i); st.rerun()
+            st.write(f"{it['Mod']} ({it['Tam']}) x{it['Qtd']} - R$ {it['Sub']:.2f}")
         if st.session_state.carrinho_v:
-            tot_v = sum(i['Sub'] for i in st.session_state.carrinho_v)
-            st.markdown(f"### Total: R$ {tot_v:.2f}")
-            st_pg = st.selectbox("Status", ["Pago", "Pendente"], key="s_pg_v")
-            fm_pg = st.selectbox("Forma", ["Pix", "Dinheiro", "Cartão", "Boleto"], key="f_pg_v")
-            if st.button("🚀 Finalizar Pedido", type="primary", key="b_fin_v"):
-                df_ev = df_estoque.copy()
-                res_v = " | ".join([f"{it['Mod']}({it['Tam']}x{it['Qtd']})" for it in st.session_state.carrinho_v])
+            tot = sum(i['Sub'] for i in st.session_state.carrinho_v)
+            st.subheader(f"Total: R$ {tot:.2f}")
+            st_pg = st.selectbox("Status", ["Pago", "Pendente"])
+            fm_pg = st.selectbox("Forma", ["Pix", "Dinheiro", "Cartão"])
+            if st.button("Finalizar Venda"):
                 for it in st.session_state.carrinho_v:
-                    ix = df_ev.index[df_ev['Modelo'] == it['Mod']][0]
-                    df_ev.at[ix, it['Tam']] = int(float(df_ev.at[ix, it['Tam']])) - it['Qtd']
-                atualizar_planilha("Estoque", df_ev)
-                atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": res_v, "Valor Total": tot_v, "Status Pagto": st_pg, "Forma": fm_pg}])], ignore_index=True))
-                st.session_state.carrinho_v = []; st.success("Venda realizada!"); st.rerun()
+                    ix = df_estoque.index[df_estoque['Modelo'] == it['Mod']][0]
+                    df_estoque.at[ix, it['Tam']] = int(float(df_estoque.at[ix, it['Tam']])) - it['Qtd']
+                atualizar_planilha("Estoque", df_estoque)
+                atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": str(st.session_state.carrinho_v), "Valor Total": tot, "Status Pagto": st_pg, "Forma": fm_pg}])], ignore_index=True))
+                st.session_state.carrinho_v = []; st.rerun()
 
-# --- TAB INSUMOS ---
 with tab_ins:
-    st.subheader("🛠️ Gastos com Insumos")
-    with st.form("f_ins_novo"):
-        desc_i = st.text_input("Descrição do Gasto")
-        val_i = st.number_input("Valor R$", min_value=0.0, format="%.2f")
-        if st.form_submit_button("Salvar Gasto"):
-            atualizar_planilha("Insumos", pd.concat([df_insumos, pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc_i, "Valor": val_i}])], ignore_index=True))
-            st.rerun()
-    for idx, row in df_insumos.iterrows():
-        cl_del, cl_txt = st.columns([0.08, 0.92])
-        if cl_del.button("🗑️", key=f"ex_ins_list_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
-        cl_txt.write(f"{row['Data']} - {row['Descricao']} - **R$ {limpar_valor(row['Valor']):.2f}**")
+    with st.form("ins"):
+        desc = st.text_input("Gasto")
+        val = st.number_input("Valor", min_value=0.0)
+        if st.form_submit_button("Salvar"):
+            atualizar_planilha("Insumos", pd.concat([df_insumos, pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc, "Valor": val}])], ignore_index=True)); st.rerun()
+    for idx, r in df_insumos.iterrows():
+        if st.button("🗑️", key=f"di_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
+        st.write(f"{r['Data']} - {r['Descricao']} - R$ {limpar_valor(r['Valor']):.2f}")
 
-# --- TAB CLIENTES ---
 with tab3:
-    st.subheader("👥 Clientes")
-    with st.form("f_cli"):
-        c1, c2 = st.columns(2)
-        n_c, l_c = c1.text_input("Nome"), c2.text_input("Loja")
-        ci_c, t_c = c1.text_input("Cidade"), c2.text_input("Telefone")
-        if st.form_submit_button("Salvar Cliente"):
-            atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": ci_c, "Telefone": t_c}])], ignore_index=True))
-            st.rerun()
-    st.dataframe(df_clientes, hide_index=True, use_container_width=True)
+    with st.form("cli"):
+        n = st.text_input("Nome Cliente")
+        l = st.text_input("Loja")
+        if st.form_submit_button("Salvar"):
+            atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n, "Loja": l}])], ignore_index=True)); st.rerun()
+    for idx, r in df_clientes.iterrows():
+        if st.button("🗑️", key=f"dc_{idx}"): atualizar_planilha("Clientes", df_clientes.drop(idx)); st.rerun()
+        st.write(f"**{r['Nome']}** - {r['Loja']}")
 
-# --- TAB 4: EXTRATO ---
 with tab4:
-    st.subheader("🧾 Extrato Financeiro")
-    p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
-    a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
-    i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
-    u = pd.concat([p_ext, a_ext, i_ext], ignore_index=True)
-    ver_tudo = st.checkbox("Exibir Histórico Completo", key="check_ver_tudo")
-    if not u.empty:
-        u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        if not ver_tudo:
-            u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
-        u = u.sort_values('Data_DT', ascending=False)
-    if u.empty:
-        st.info("ℹ️ Nenhuma movimentação registrada para este período.")
-        vendas, gastos = 0.0, 0.0
-    else:
-        for idx, row in u.iterrows():
-            col_del, col_info = st.columns([0.08, 0.92])
-            if col_del.button("🗑️", key=f"del_ext_{idx}"):
-                if row['Origem'] == "Pedidos":
-                    atualizar_planilha("Pedidos", df_pedidos[~((df_pedidos['Data'] == row['Data']) & (df_pedidos['Cliente'] == row['Cliente']))])
-                elif row['Origem'] == "Aquisicoes":
-                    atualizar_planilha("Aquisicoes", df_aquisicoes[~((df_aquisicoes['Data'] == row['Data']) & (df_aquisicoes['Resumo'] == row['Resumo']))])
-                elif row['Origem'] == "Insumos":
-                    atualizar_planilha("Insumos", df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))])
-                st.rerun()
-            val_num = limpar_valor(row['Valor Total'])
-            txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
-            col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {val_num:.2f}**")
-        vendas = u[u['Origem'] == "Pedidos"]['Valor Total'].apply(limpar_valor).sum()
-        gastos = u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total'].apply(limpar_valor).sum()
-    st.divider()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Vendas", f"R$ {vendas:.2f}")
-    c2.metric("Saídas", f"R$ {gastos:.2f}")
-    c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
-    
-    # BOTAO PARA PDF DE EXTRATO (ADICIONADO)
-    if not u.empty:
-        if st.button("📄 Gerar PDF Detalhado"):
-            pdf = PDF()
-            pdf.add_page()
-            pdf.set_font('Arial', '', 12)
-            pdf.cell(0, 10, f"RELATORIO FINANCEIRO - Saldo: R$ {vendas-gastos:.2f}", ln=True)
-            pdf.ln(5)
-            for _, r in u.iterrows():
-                pdf.set_font('Arial', '', 10)
-                pdf.cell(0, 8, f"{r['Data']} | {r['Tipo']} | R$ {limpar_valor(r['Valor Total']):.2f}", ln=True)
-            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
+    col_x, col_d = st.columns([2, 1])
+    with col_x:
+        st.subheader("🧾 Histórico")
+        p = df_pedidos.assign(Tipo="🔴 Venda", Origem="Pedidos")
+        a = df_aquisicoes.assign(Tipo="🟢 Compra", Origem="Aquisicoes")
+        i = df_insumos.assign(Tipo="🟠 Insumo", Origem="Insumos").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
+        u = pd.concat([p, a, i], ignore_index=True)
+        if not u.empty:
+            u['DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
+            u = u.sort_values('DT', ascending=False)
+            for idx, r in u.iterrows():
+                c_del, c_txt = st.columns([0.1, 0.9])
+                if c_del.button("🗑️", key=f"dx_{idx}"):
+                    # Lógica de remoção correta por aba
+                    if r['Origem'] == "Pedidos": atualizar_planilha("Pedidos", df_pedidos[df_pedidos['Data'] != r['Data']])
+                    elif r['Origem'] == "Aquisicoes": atualizar_planilha("Aquisicoes", df_aquisicoes[df_aquisicoes['Data'] != r['Data']])
+                    elif r['Origem'] == "Insumos": atualizar_planilha("Insumos", df_insumos[df_insumos['Data'] != r['Data']])
+                    st.rerun()
+                st.write(f"**{r['Data']}** | {r['Tipo']} | R$ {limpar_valor(r['Valor Total']):.2f}")
+            if st.button("📄 Exportar PDF"):
+                pdf = PDF(); pdf.add_page(); pdf.set_font('Arial', '', 12); pdf.cell(0, 10, "Extrato Detalhado", ln=True)
+                st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
+    with col_d:
+        st.subheader("🏆 Mais Vendidos")
+        if not df_pedidos.empty:
+            # Simplificação técnica: contagem por cliente/pedido já que 'Resumo' é string de lista
+            st.write(df_pedidos['Cliente'].value_counts().head(3))
 
-# --- TAB 5: LEMBRETES ---
 with tab5:
-    st.subheader("📅 Agendar Lembrete de Pagamento")
-    with st.form("f_lembrete"):
-        l_nome = st.text_input("Nome do Lembrete (ex: Aluguel, Fornecedor X)")
-        col_d, col_v = st.columns(2)
-        # Campo de data no formato dia/mês/ano para o usuário
-        l_data = col_d.date_input("Data de Pagamento", format="DD/MM/YYYY")
-        l_valor = col_v.number_input("Valor R$", min_value=0.0, format="%.2f")
-        if st.form_submit_button("Salvar Lembrete"):
-            # Salva na planilha já formatado em dia/mês/ano
-            novo_l = pd.DataFrame([{"Nome": l_nome, "Data": l_data.strftime("%d/%m/%Y"), "Valor": l_valor}])
-            atualizar_planilha("Lembretes", pd.concat([df_lembretes, novo_l], ignore_index=True))
-            st.success("Lembrete agendado!"); st.rerun()
-    st.markdown("---")
-    st.subheader("📌 Meus Lembretes")
-    if not df_lembretes.empty:
-        for idx, row in df_lembretes.iterrows():
-            c_del, c_info = st.columns([0.08, 0.92])
-            if c_del.button("🗑️", key=f"del_lem_{idx}"):
-                atualizar_planilha("Lembretes", df_lembretes.drop(idx)); st.rerun()
-            c_info.write(f"**{row['Nome']}** - Vence em: {row['Data']} - **R$ {limpar_valor(row['Valor']):.2f}**")
-    else: st.info("Nenhum lembrete cadastrado.")
+    with st.form("lem"):
+        ln = st.text_input("Lembrete")
+        ld = st.date_input("Data", format="DD/MM/YYYY")
+        lv = st.number_input("Valor", min_value=0.0)
+        if st.form_submit_button("Salvar"):
+            atualizar_planilha("Lembretes", pd.concat([df_lembretes, pd.DataFrame([{"Nome": ln, "Data": ld.strftime("%d/%m/%Y"), "Valor": lv}])], ignore_index=True)); st.rerun()
+    for idx, r in df_lembretes.iterrows():
+        if st.button("🗑️", key=f"dl_{idx}"): atualizar_planilha("Lembretes", df_lembretes.drop(idx)); st.rerun()
+        st.write(f"**{r['Nome']}** - {r['Data']} - R$ {limpar_valor(r['Valor']):.2f}")

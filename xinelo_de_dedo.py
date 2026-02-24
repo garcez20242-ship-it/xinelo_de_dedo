@@ -12,11 +12,17 @@ TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38"
 
 # --- FUNÇÕES AUXILIARES ---
 def converter_link_drive(url):
-    if url and "drive.google.com" in url:
-        match = re.search(r'[-\w]{25,}', url)
+    """Converte links do Google Drive para link direto de imagem."""
+    if not url or not isinstance(url, str):
+        return url
+    
+    # Se for link do Drive (compartilhamento normal ou export)
+    if "drive.google.com" in url:
+        match = re.search(r'([-\w]{25,})', url)
         if match:
-            file_id = match.group()
+            file_id = match.group(1)
             return f"https://drive.google.com/uc?export=view&id={file_id}"
+    
     return url
 
 @st.cache_data(ttl=0)
@@ -25,6 +31,7 @@ def carregar_dados():
         conn = st.connection("gsheets", type=GSheetsConnection)
         def ler_aba(nome, colunas):
             try:
+                # ttl=0 garante que ele tente ler o dado mais fresco possível
                 df = conn.read(spreadsheet=URL_PLANILHA, worksheet=nome, ttl=0).dropna(how='all')
                 if df.empty: return pd.DataFrame(columns=colunas)
                 df.columns = df.columns.str.strip()
@@ -34,6 +41,11 @@ def carregar_dados():
         df_e = ler_aba("Estoque", ["Modelo", "Imagem"] + TAMANHOS_PADRAO)
         df_p = ler_aba("Pedidos", ["Data", "Cliente", "Resumo do Pedido"])
         df_c = ler_aba("Clientes", ["Nome", "Loja", "Telefone", "Cidade"])
+        
+        # Limpeza visual: garantir que a coluna Imagem seja string e converter links
+        if "Imagem" in df_e.columns:
+            df_e["Imagem"] = df_e["Imagem"].apply(converter_link_drive)
+            
         return conn, df_e, df_p, df_c
     except Exception as e:
         st.error(f"Erro na conexão: {e}")
@@ -46,7 +58,7 @@ def atualizar_planilha(aba, dataframe):
     df_limpo = df_limpo.loc[:, ~df_limpo.columns.str.contains('^Unnamed')]
     try:
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_limpo)
-        st.cache_data.clear()
+        st.cache_data.clear() # Limpa o cache para a próxima leitura
     except Exception as e:
         st.error(f"Erro ao salvar na aba {aba}: {e}")
 
@@ -72,12 +84,17 @@ if conn is not None:
             for idx, row in df_estoque.iterrows():
                 with st.expander(f"👟 {row['Modelo']}"):
                     col_img, col_info = st.columns([1, 3])
-                    if pd.notna(row.get('Imagem')) and str(row['Imagem']).startswith('http'):
-                        col_img.image(row['Imagem'], width=150)
+                    
+                    # Lógica de Imagem
+                    url_img = row.get('Imagem')
+                    if pd.notna(url_img) and str(url_img).startswith('http'):
+                        col_img.image(url_img, width=180)
+                    else:
+                        col_img.info("Sem imagem válida")
                     
                     if modo_edicao:
                         n_nome = col_info.text_input("Editar Nome", value=row['Modelo'], key=f"edit_m_n_{idx}")
-                        n_img = col_info.text_input("Link Imagem", value=row.get('Imagem',''), key=f"edit_m_i_{idx}")
+                        n_img = col_info.text_input("Link Imagem (Drive)", value=row.get('Imagem',''), key=f"edit_m_i_{idx}")
                         
                         col_btn1, col_btn2 = col_info.columns(2)
                         if col_btn1.button("Salvar Alterações ✅", key=f"btn_m_s_{idx}"):
@@ -86,7 +103,6 @@ if conn is not None:
                             atualizar_planilha("Estoque", df_estoque)
                             st.rerun()
                         
-                        # Confirmação para apagar Modelo
                         with col_btn2:
                             confirma_m = st.checkbox("Confirmar exclusão?", key=f"check_m_{idx}")
                             if st.button("APAGAR MODELO 🗑️", key=f"btn_m_d_{idx}", disabled=not confirma_m):
@@ -121,7 +137,6 @@ if conn is not None:
         else:
             c1, c2 = st.columns([1.5, 2.5])
             with c1:
-                st.write("**Adicionar Item**")
                 v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique())
                 v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique())
                 v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO)
@@ -198,12 +213,14 @@ if conn is not None:
         if tipo == "Modelo de Sandália":
             with st.form("cad_m"):
                 m_n = st.text_input("Nome do Modelo")
-                m_i = st.text_input("Link da Imagem")
+                m_i = st.text_input("Link da Imagem (Drive)")
                 cols = st.columns(5)
                 q_d = {t: cols[i%5].number_input(f"T {t}", min_value=0, key=f"new_m_{t}") for i, t in enumerate(TAMANHOS_PADRAO)}
                 if st.form_submit_button("Cadastrar Modelo ✨"):
                     if m_n:
-                        ni = {"Modelo": m_n, "Imagem": converter_link_drive(m_i)}
+                        # Converte o link antes de salvar na planilha
+                        link_direto = converter_link_drive(m_i)
+                        ni = {"Modelo": m_n, "Imagem": link_direto}
                         ni.update(q_d)
                         df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
                         atualizar_planilha("Estoque", df_estoque)

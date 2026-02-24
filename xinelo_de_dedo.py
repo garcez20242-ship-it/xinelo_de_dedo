@@ -25,33 +25,42 @@ def get_drive_service():
 def upload_para_drive(file):
     try:
         service = get_drive_service()
+        
+        # Metadata simplificada
         file_metadata = {
             'name': f"FOTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.name}",
             'parents': [ID_PASTA_FOTOS]
         }
         
-        # O segredo está em converter para BytesIO e usar o upload simples
+        # Forçamos o upload para ser não-resumable (ajuda com quotas de Service Accounts)
         media = MediaIoBaseUpload(io.BytesIO(file.getvalue()), mimetype=file.type, resumable=False)
         
-        # Adicionado supportsAllDrives=True para usar a quota da pasta compartilhada
+        # Criar o arquivo
         uploaded_file = service.files().create(
             body=file_metadata, 
             media_body=media, 
             fields='id',
-            supportsAllDrives=True 
+            supportsAllDrives=True
         ).execute()
         
         file_id = uploaded_file.get('id')
         
-        service.permissions().create(
-            fileId=file_id, 
-            body={'type': 'anyone', 'role': 'reader'},
-            supportsAllDrives=True
-        ).execute()
-        
+        # Tenta tornar o arquivo público para visualização
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={'type': 'anyone', 'role': 'reader'},
+                supportsAllDrives=True
+            ).execute()
+        except:
+            pass # Se falhar a permissão, o link pode não funcionar, mas o upload ocorreu
+            
         return f"https://drive.google.com/uc?export=view&id={file_id}"
+    
     except Exception as e:
-        st.error(f"Erro no upload/quota: {e}")
+        # Se o erro de quota persistir, mostramos uma alternativa manual
+        st.error(f"Erro de Quota no Drive: {e}")
+        st.info("💡 Dica: Verifique se a pasta no Drive não está cheia ou tente usar uma conta de serviço vinculada a um Google Workspace.")
         return ""
 
 @st.cache_data(ttl=0)
@@ -102,15 +111,16 @@ if conn is not None:
                     if m_n:
                         with st.spinner("Enviando foto para o Drive..."):
                             img_url = upload_para_drive(m_f) if m_f else ""
-                        ni = {"Modelo": m_n, "Imagem": img_url}
-                        ni.update(q_d)
-                        df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
-                        atualizar_planilha("Estoque", df_estoque)
-                        st.rerun()
+                        if img_url:
+                            ni = {"Modelo": m_n, "Imagem": img_url}
+                            ni.update(q_d)
+                            df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
+                            atualizar_planilha("Estoque", df_estoque)
+                            st.rerun()
 
         st.divider()
         if df_estoque.empty:
-            st.info("Nenhum modelo.")
+            st.info("Nenhum modelo cadastrado.")
         else:
             modo_edicao = st.toggle("🔓 Editar Estoque")
             for idx, row in df_estoque.iterrows():

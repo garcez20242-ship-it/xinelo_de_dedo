@@ -40,16 +40,18 @@ def carregar_dados():
 
 conn, df_estoque, df_pedidos, df_clientes, df_aquisicoes = carregar_dados()
 
+# --- ATUALIZAÇÃO COM LIMPEZA DE CACHE ---
 def atualizar_planilha(aba, dataframe):
-    df_limpo = dataframe.astype(str)
-    df_limpo = df_limpo.loc[:, ~df_limpo.columns.str.contains('^Unnamed')]
     try:
+        # Garante que números sejam salvos como strings formatadas para evitar erros de leitura
+        df_limpo = dataframe.astype(str)
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_limpo)
+        # LIMPA O CACHE PARA FORÇAR A LEITURA DOS NOVOS DADOS
         st.cache_data.clear()
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro ao salvar na aba {aba}: {e}")
 
-# --- BARRA LATERAL (ALERTAS DE ESTOQUE) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚠️ Alertas de Estoque")
     if not df_estoque.empty:
@@ -58,7 +60,7 @@ with st.sidebar:
             mod = row['Modelo']
             for t in TAMANHOS_PADRAO:
                 try:
-                    q = int(row[t])
+                    q = int(float(row[t])) # Uso de float antes de int previne erro com decimais
                     if q < 3: criticos.append(f"🔴 {mod} ({t}): {q}")
                     elif q < 5: atencao.append(f"🟡 {mod} ({t}): {q}")
                 except: continue
@@ -90,7 +92,7 @@ with tab1:
             q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="ent_q")
             v_uni = col_v.number_input("Valor Unit. (R$)", min_value=0.0, format="%.2f", key="ent_v")
             v_subtotal = q_aq * v_uni
-            st.info(f"Subtotal deste item: R$ {v_subtotal:.2f}")
+            st.info(f"Subtotal: R$ {v_subtotal:.2f}")
             
             if st.button("➕ Adicionar à Carga", key="btn_ent_add"):
                 st.session_state.carrinho_ent.append({
@@ -111,14 +113,26 @@ with tab1:
                 st.write(f"**Total da Carga: R$ {total_carga:.2f}**")
                 if st.button("✅ Confirmar Tudo", key="ent_confirm", type="primary"):
                     resumo_f = []
+                    # Criamos uma cópia para trabalhar os dados
+                    estoque_atualizado = df_estoque.copy()
                     for item in st.session_state.carrinho_ent:
-                        idx = df_estoque.index[df_estoque['Modelo'] == item['Modelo']][0]
-                        df_estoque.at[idx, item['Tamanho']] = int(df_estoque.at[idx, item['Tamanho']]) + item['Qtd']
+                        idx = estoque_atualizado.index[estoque_atualizado['Modelo'] == item['Modelo']][0]
+                        # Soma o novo valor ao estoque atual
+                        val_atual = int(float(estoque_atualizado.at[idx, item['Tamanho']]))
+                        estoque_atualizado.at[idx, item['Tamanho']] = val_atual + item['Qtd']
                         resumo_f.append(f"{item['Modelo']}({item['Tamanho']}) x{item['Qtd']} [Un: R${item['Unitário']:.2f}]")
-                    nova_aq = pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(resumo_f), "Valor Total": f"{total_carga:.2f}"}])
-                    df_aquisicoes = pd.concat([df_aquisicoes, nova_aq], ignore_index=True)
-                    atualizar_planilha("Estoque", df_estoque); atualizar_planilha("Aquisicoes", df_aquisicoes)
-                    st.session_state.carrinho_ent = []; st.rerun()
+                    
+                    nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{
+                        "Data": get_data_hora(), 
+                        "Resumo da Carga": " | ".join(resumo_f), 
+                        "Valor Total": f"{total_carga:.2f}"
+                    }])], ignore_index=True)
+                    
+                    atualizar_planilha("Estoque", estoque_atualizado)
+                    atualizar_planilha("Aquisicoes", nova_aq)
+                    st.session_state.carrinho_ent = []
+                    st.success("Estoque Atualizado!")
+                    st.rerun()
         else: st.info("Cadastre modelos primeiro.")
     with c2:
         st.subheader("📋 Inventário Atual")
@@ -134,10 +148,10 @@ with tab_cad:
         if st.form_submit_button("Cadastrar Modelo"):
             if n_m and n_m not in df_estoque['Modelo'].values:
                 ni = {"Modelo": n_m}; ni.update(ipts)
-                df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
-                atualizar_planilha("Estoque", df_estoque); st.rerun()
+                novo_df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
+                atualizar_planilha("Estoque", novo_df_estoque); st.rerun()
 
-# --- ABA 3: VENDAS (COM TRAVA E REMOÇÃO) ---
+# --- ABA 3: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
@@ -148,59 +162,50 @@ with tab2:
         v_t = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="v_tam")
         
         try:
-            disp = int(df_estoque.loc[df_estoque['Modelo'] == v_m, v_t].values[0])
+            disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_m, v_t].values[0]))
         except: disp = 0
         
-        st.metric("Disponível em Estoque", disp)
-        
-        # Correção automática de limite para evitar crash do Streamlit
+        st.metric("Disponível", disp)
         v_q = st.number_input("Quantidade", min_value=0, max_value=max(0, disp), step=1, key="v_qtd_val")
         
-        if st.button("➕ Adicionar ao Pedido", key="v_add"):
+        if st.button("➕ Adicionar", key="v_add"):
             if v_q > 0:
                 st.session_state.carrinho_v.append({"Modelo": v_m, "Tamanho": v_t, "Qtd": v_q})
                 st.rerun()
-
     with c2:
         if st.session_state.carrinho_v:
-            st.write("**Resumo do Pedido:**")
             for idx, item in enumerate(st.session_state.carrinho_v):
-                col_i, col_d = st.columns([4, 1])
-                col_i.write(f"{item['Modelo']} ({item['Tamanho']}) - {item['Qtd']} un")
-                if col_d.button("🗑️", key=f"del_v_{idx}"):
-                    st.session_state.carrinho_v.pop(idx)
-                    st.rerun()
-            
-            if st.button("🚀 Finalizar Venda", key="v_fin", type="primary"):
+                ct, cd = st.columns([4, 1])
+                ct.write(f"{item['Modelo']} ({item['Tamanho']}) - {item['Qtd']} un")
+                if cd.button("🗑️", key=f"del_v_{idx}"):
+                    st.session_state.carrinho_v.pop(idx); st.rerun()
+            if st.button("🚀 Finalizar Venda", type="primary"):
+                est_v = df_estoque.copy()
                 res_v = []
                 for it in st.session_state.carrinho_v:
-                    idx_est = df_estoque.index[df_estoque['Modelo'] == it['Modelo']][0]
-                    df_estoque.at[idx_est, it['Tamanho']] = int(df_estoque.at[idx_est, it['Tamanho']]) - it['Qtd']
+                    idx = est_v.index[est_v['Modelo'] == it['Modelo']][0]
+                    est_v.at[idx, it['Tamanho']] = int(float(est_v.at[idx, it['Tamanho']])) - it['Qtd']
                     res_v.append(f"{it['Modelo']}({it['Tamanho']} x{it['Qtd']})")
-                
-                np = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v)}])
-                df_pedidos = pd.concat([df_pedidos, np], ignore_index=True)
-                atualizar_planilha("Estoque", df_estoque); atualizar_planilha("Pedidos", df_pedidos)
+                n_ped = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v)}])], ignore_index=True)
+                atualizar_planilha("Estoque", est_v); atualizar_planilha("Pedidos", n_ped)
                 st.session_state.carrinho_v = []; st.rerun()
 
 # --- ABA 4: CLIENTES ---
 with tab3:
-    with st.form("f_cli_form"):
-        n, l = st.text_input("Nome do Cliente"), st.text_input("Loja/Cidade")
-        if st.form_submit_button("Salvar Novo Cliente"):
-            df_clientes = pd.concat([df_clientes, pd.DataFrame([{"Nome": n, "Loja": l}])], ignore_index=True)
-            atualizar_planilha("Clientes", df_clientes); st.rerun()
+    with st.form("f_cli"):
+        n, l = st.text_input("Nome"), st.text_input("Loja")
+        if st.form_submit_button("Salvar Cliente"):
+            n_cli = pd.concat([df_clientes, pd.DataFrame([{"Nome": n, "Loja": l}])], ignore_index=True)
+            atualizar_planilha("Clientes", n_cli); st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
 # --- ABA 5: EXTRATO ---
 with tab4:
-    st.subheader("🧾 Extrato Unificado de Movimentação")
+    st.subheader("🧾 Extrato Unificado")
     ext_v = df_pedidos.copy()
     ext_v['Tipo'], ext_v['Descrição'], ext_v['Total'] = "🔴 SAÍDA", ext_v['Cliente'] + ": " + ext_v['Resumo do Pedido'], "---"
-    
     ext_a = df_aquisicoes.copy()
     ext_a['Tipo'], ext_a['Descrição'], ext_a['Total'] = "🟢 ENTRADA", ext_a['Resumo da Carga'], ext_a['Valor Total'].apply(lambda x: f"R$ {x}")
-    
     ext_u = pd.concat([ext_v[['Data', 'Tipo', 'Descrição', 'Total']], ext_a[['Data', 'Tipo', 'Descrição', 'Total']]], ignore_index=True)
     if not ext_u.empty:
         ext_u['DS'] = pd.to_datetime(ext_u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')

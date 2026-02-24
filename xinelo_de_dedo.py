@@ -81,7 +81,7 @@ def atualizar_planilha(aba, dataframe):
         st.error(f"Erro ao salvar: {e}")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("👡 Sistema de Gestão - Sandálias Nuvem")
+st.title("🩴 Xinelo de Dedo")
 
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Estoque", "🛒 Nova Venda", "👥 Clientes", "📜 Histórico"])
 
@@ -157,3 +157,4 @@ with tab3:
 # --- ABA 4: HISTÓRICO ---
 with tab4:
     st.dataframe(df_pedidos.iloc[::-1], use_container_width=True, hide_index=True)
+

@@ -59,7 +59,7 @@ def atualizar_planilha(aba, dataframe):
 # --- BARRA LATERAL: ALERTAS DE ESTOQUE ---
 with st.sidebar:
     st.header("⚠️ Alertas de Estoque")
-    st.write("Produtos com menos de 3 unidades:")
+    st.write("Produtos com poucas unidades:")
     alerta_vazio = True
     if not df_estoque.empty:
         for _, row in df_estoque.iterrows():
@@ -194,24 +194,31 @@ with tab3:
             st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO (COM FILTRO RESTAURADO) ---
+# --- TAB 5: EXTRATO (COM MENSAGEM DE "SEM DADOS") ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
+    
+    # Consolidação dos dados
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
     a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
     i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
     u = pd.concat([p_ext, a_ext, i_ext], ignore_index=True)
     
+    # Filtro de data
+    ver_tudo = st.checkbox("Exibir Histórico Completo", key="check_ver_tudo")
+    
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        
-        # Filtro restaurado para dentro da aba
-        ver_tudo = st.checkbox("Exibir Histórico Completo", key="check_ver_tudo")
         if not ver_tudo:
             u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
         
         u = u.sort_values('Data_DT', ascending=False)
 
+    # Exibição dos registros ou mensagem de vazio
+    if u.empty or len(u) == 0:
+        st.info("ℹ️ Nenhuma movimentação registrada para este período.")
+        vendas, gastos = 0.0, 0.0
+    else:
         for idx, row in u.iterrows():
             col_del, col_info = st.columns([0.08, 0.92])
             if col_del.button("🗑️", key=f"del_ext_{idx}"):
@@ -222,22 +229,25 @@ with tab4:
                 elif row['Origem'] == "Insumos":
                     atualizar_planilha("Insumos", df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))])
                 st.rerun()
+            
             val_num = limpar_valor(row['Valor Total'])
             txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
             col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {val_num:.2f}**")
 
         vendas = u[u['Origem'] == "Pedidos"]['Valor Total'].apply(limpar_valor).sum()
         gastos = u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total'].apply(limpar_valor).sum()
-        
-        st.divider()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Vendas", f"R$ {vendas:.2f}")
-        c2.metric("Saídas", f"R$ {gastos:.2f}")
-        c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
+    
+    # Métricas (Sempre visíveis)
+    st.divider()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Vendas", f"R$ {vendas:.2f}")
+    c2.metric("Saídas", f"R$ {gastos:.2f}")
+    c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
 
+    if not u.empty:
         if st.button("📄 Gerar PDF Detalhado"):
             pdf = PDF()
             pdf.add_page()
             pdf.set_font('Arial', '', 12)
-            pdf.cell(0, 10, f"Lucro Total: R$ {vendas-gastos:.2f}", ln=True)
+            pdf.cell(0, 10, f"Relatorio Financeiro - Saldo: R$ {vendas-gastos:.2f}", ln=True)
             st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="relatorio.pdf")

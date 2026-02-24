@@ -105,12 +105,17 @@ with tab1:
                     nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": total_compra}])], ignore_index=True)
                     atualizar_planilha("Estoque", df_e_new)
                     atualizar_planilha("Aquisicoes", nova_aq)
-                    st.session_state.carrinho_ent = []; st.rerun()
+                    st.session_state.carrinho_ent = []
+                    st.success("Entrada registada com sucesso!")
+                    st.rerun()
     with c2:
         st.subheader("📋 Inventário")
         for idx, row in df_estoque.iterrows():
             col_del, col_txt = st.columns([0.08, 0.92])
-            if col_del.button("🗑️", key=f"ex_{idx}"): atualizar_planilha("Estoque", df_estoque.drop(idx)); st.rerun()
+            if col_del.button("🗑️", key=f"ex_{idx}"): 
+                atualizar_planilha("Estoque", df_estoque.drop(idx))
+                st.success("Modelo removido!")
+                st.rerun()
             col_txt.write(f"**{row['Modelo']}**")
         st.dataframe(df_estoque, hide_index=True)
 
@@ -123,7 +128,9 @@ with tab_cad:
         if st.form_submit_button("Cadastrar"):
             if n_m: 
                 ni = {"Modelo": n_m}; ni.update(ipts)
-                atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.rerun()
+                atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True))
+                st.success(f"Modelo {n_m} cadastrado!")
+                st.rerun()
 
 # --- TAB 3: VENDAS ---
 with tab2:
@@ -164,7 +171,9 @@ with tab2:
                 nova_venda = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": total_venda}])], ignore_index=True)
                 atualizar_planilha("Estoque", df_ev)
                 atualizar_planilha("Pedidos", nova_venda)
-                st.session_state.carrinho_v = []; st.rerun()
+                st.session_state.carrinho_v = []
+                st.success("Venda finalizada com sucesso!")
+                st.rerun()
 
 # --- TAB 4: CLIENTES ---
 with tab3:
@@ -176,32 +185,42 @@ with tab3:
         if st.form_submit_button("Salvar Cliente"):
             if n_c:
                 atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": c_c, "Telefone": t_c}])], ignore_index=True))
+                st.success("Cliente guardado!")
                 st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO ---
+# --- TAB 5: EXTRATO (COM FILTRO E MENSAGENS) ---
 with tab4:
     st.subheader("🧾 Extrato de Movimentação")
-    
-    # Processa Saídas
-    ev = df_pedidos.copy()
-    ev['Tipo'] = "🔴 SAÍDA"
-    ev['Descrição'] = ev['Cliente'].astype(str) + ": " + ev['Resumo do Pedido'].astype(str)
-    ev['Valor_Total_Formatado'] = ev['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(pd.to_numeric(x, errors='coerce')) else "R$ 0.00")
-    
-    # Processa Entradas
-    ea = df_aquisicoes.copy()
-    ea['Tipo'] = "🟢 ENTRADA"
-    ea['Descrição'] = ea['Resumo da Carga'].astype(str)
-    ea['Valor_Total_Formatado'] = ea['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(pd.to_numeric(x, errors='coerce')) else "R$ 0.00")
-    
-    # Unifica
-    u = pd.concat([
-        ev[['Data', 'Tipo', 'Descrição', 'Valor_Total_Formatado']], 
-        ea[['Data', 'Tipo', 'Descrição', 'Valor_Total_Formatado']]
-    ], ignore_index=True)
+    u = pd.concat([df_pedidos.assign(Tipo="🔴 SAÍDA"), df_aquisicoes.assign(Tipo="🟢 ENTRADA")], ignore_index=True)
     
     if not u.empty:
-        u.columns = ['Data', 'Tipo', 'Descrição', 'Valor Total']
-        u['DS'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        st.dataframe(u.sort_values('DS', ascending=False).drop('DS', axis=1), use_container_width=True, hide_index=True)
+        u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
+        
+        # Filtros
+        col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
+        modo_filtro = col_f1.radio("Ver:", ["Mês Atual", "Tudo"], horizontal=True)
+        
+        if modo_filtro == "Mês Atual":
+            meses = {1:"Jan", 2:"Fev", 3:"Mar", 4:"Abr", 5:"Mai", 6:"Jun", 7:"Jul", 8:"Ago", 9:"Set", 10:"Out", 11:"Nov", 12:"Dez"}
+            mes_sel = col_f2.selectbox("Mês", options=list(meses.keys()), format_func=lambda x: meses[x], index=datetime.now().month-1)
+            ano_sel = col_f3.selectbox("Ano", options=range(2024, 2030), index=range(2024, 2030).index(datetime.now().year))
+            f_df = u[(u['Data_DT'].dt.month == mes_sel) & (u['Data_DT'].dt.year == ano_sel)].copy()
+        else:
+            f_df = u.copy()
+        
+        # Formatação
+        f_df['Descrição'] = f_df.apply(lambda r: f"{r['Cliente']}: {r['Resumo do Pedido']}" if r['Tipo'] == "🔴 SAÍDA" else r['Resumo da Carga'], axis=1)
+        f_df['Valor Total'] = f_df['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}")
+        
+        st.dataframe(f_df.sort_values('Data_DT', ascending=False)[['Data', 'Tipo', 'Descrição', 'Valor Total']], use_container_width=True, hide_index=True)
+        
+        # Resumo Financeiro
+        rec = pd.to_numeric(f_df[f_df['Tipo'] == "🔴 SAÍDA"]['Valor Total'].str.replace('R$ ', ''), errors='coerce').sum()
+        des = pd.to_numeric(f_df[f_df['Tipo'] == "🟢 ENTRADA"]['Valor Total'].str.replace('R$ ', ''), errors='coerce').sum()
+        c_r1, c_r2, c_r3 = st.columns(3)
+        c_r1.metric("Vendas (Receita)", f"R$ {rec:.2f}")
+        c_r2.metric("Compras (Despesa)", f"R$ {des:.2f}")
+        c_r3.metric("Saldo", f"R$ {rec - des:.2f}", delta=float(rec-des))
+    else:
+        st.info("Nenhuma movimentação registada.")

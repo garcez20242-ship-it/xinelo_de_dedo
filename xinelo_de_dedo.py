@@ -6,8 +6,8 @@ from fpdf import FPDF
 import time
 
 # --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="Gestão Master v6.9", layout="wide", page_icon="🩴")
-st.title("🩴 Gestão Master v6.9")
+st.set_page_config(page_title="Gestão Master v7.0", layout="wide", page_icon="🩴")
+st.title("🩴 Gestão Master v7.0")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
@@ -83,12 +83,13 @@ with tabs[0]: # ESTOQUE
     st.subheader("📋 Gestão de Inventário")
     st.dataframe(df_est, hide_index=True)
     
+    # ENTRADA DE COMPRA (MINIMIZADO)
     with st.expander("➕ Entrada de Compra (Lote Multi-Modelo)"):
         if 'entrada_lote' not in st.session_state: st.session_state.entrada_lote = []
         c1, c2, c3 = st.columns(3)
-        mod_e = c1.selectbox("Modelo", df_est['Modelo'].unique()) if not df_est.empty else None
-        tam_e = c2.selectbox("Tamanho", TAMANHOS_PADRAO)
-        qtd_e = c3.number_input("Qtd", min_value=1, key="qtd_entrada")
+        mod_e = c1.selectbox("Modelo para Entrada", df_est['Modelo'].unique()) if not df_est.empty else None
+        tam_e = c2.selectbox("Tamanho para Entrada", TAMANHOS_PADRAO)
+        qtd_e = c3.number_input("Qtd para Entrada", min_value=1)
         if st.button("Adicionar ao Lote"):
             st.session_state.entrada_lote.append({"Modelo": mod_e, "Tam": tam_e, "Qtd": qtd_e})
             st.rerun()
@@ -108,6 +109,17 @@ with tabs[0]: # ESTOQUE
                 nova_v = pd.DataFrame([{"Data": get_data_hora(), "Cliente": "FORNECEDOR", "Resumo": f"ENTRADA: {' | '.join(res_compra)}", "Valor Total": val_total_compra, "Status Pagto": "Pago"}])
                 salvar("Pedidos", pd.concat([df_ped, nova_v], ignore_index=True))
                 st.session_state.entrada_lote = []; st.rerun()
+
+    # APAGAR MODELOS (MINIMIZADO)
+    with st.expander("🗑️ Apagar Modelo do Estoque"):
+        if not df_est.empty:
+            mod_para_apagar = st.selectbox("Selecione o Modelo para REMOVER permanentemente", df_est['Modelo'].unique())
+            st.warning(f"Atenção: Isso apagará o modelo '{mod_para_apagar}' e todas as suas quantidades do banco de dados.")
+            if st.button("Confirmar Exclusão do Modelo", type="secondary"):
+                df_restante = df_est[df_est['Modelo'] != mod_para_apagar]
+                salvar("Estoque", df_restante)
+        else:
+            st.info("Nenhum modelo cadastrado para apagar.")
 
 with tabs[1]: # NOVOS MODELOS
     st.subheader("✨ Cadastrar Novo Modelo de Chinelo")
@@ -166,7 +178,6 @@ with tabs[4]: # CLIENTES
 with tabs[5]: # EXTRATO
     st.subheader("🧾 Histórico Geral de Movimentações")
     if not df_ped.empty:
-        # Forçamos a exibição convertendo para lista para evitar erros de renderização do Streamlit
         movimentacoes = df_ped.sort_index(ascending=False)
         for idx, r in movimentacoes.iterrows():
             with st.container(border=True):

@@ -43,23 +43,39 @@ def carregar_dados():
                 return df
             except: return pd.DataFrame(columns=colunas)
         
-        return conn, ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO), \
+        return conn, \
+               ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO), \
                ler_aba("Pedidos", ["Data", "Cliente", "Resumo", "Valor Total", "Status Pagto", "Forma"]), \
                ler_aba("Clientes", ["Nome", "Loja", "Cidade", "Telefone"]), \
                ler_aba("Aquisicoes", ["Data", "Resumo", "Valor Total"]), \
-               ler_aba("Insumos", ["Data", "Descricao", "Valor"])
-    except: return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+               ler_aba("Insumos", ["Data", "Descricao", "Valor"]), \
+               ler_aba("Lembretes", ["Nome", "Data", "Valor"])
+    except: return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-conn, df_estoque, df_pedidos, df_clientes, df_aquisicoes, df_insumos = carregar_dados()
+conn, df_estoque, df_pedidos, df_clientes, df_aquisicoes, df_insumos, df_lembretes = carregar_dados()
 
 def atualizar_planilha(aba, dataframe):
     conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
     st.cache_data.clear()
 
-# --- BARRA LATERAL: ALERTAS DE ESTOQUE ---
+# --- BARRA LATERAL: ALERTAS ---
 with st.sidebar:
+    st.header("💳 Alertas de Pagamento")
+    hoje = datetime.now().date()
+    tem_pagamento = False
+    if not df_lembretes.empty:
+        df_l_temp = df_lembretes.copy()
+        df_l_temp['Data_DT'] = pd.to_datetime(df_l_temp['Data'], errors='coerce').dt.date
+        pendentes = df_l_temp[df_l_temp['Data_DT'] <= hoje]
+        for _, row in pendentes.iterrows():
+            st.error(f"**{row['Nome']}**\nVencimento: {row['Data']}\nValor: R$ {limpar_valor(row['Valor']):.2f}")
+            tem_pagamento = True
+    if not tem_pagamento:
+        st.success("✅ Nenhum pagamento para hoje!")
+    
+    st.divider()
+
     st.header("⚠️ Alertas de Estoque")
-    st.write("Produtos com poucas unidades:")
     alerta_vazio = True
     if not df_estoque.empty:
         for _, row in df_estoque.iterrows():
@@ -77,7 +93,7 @@ with st.sidebar:
 # --- INTERFACE PRINCIPAL ---
 st.title("🩴 Xinelo de Dedo - Gestão Pro")
 
-tab1, tab_cad, tab2, tab_ins, tab3, tab4 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato & PDF"])
+tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
 
 # --- TAB 1: ESTOQUE ---
 with tab1:
@@ -194,28 +210,20 @@ with tab3:
             st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO (COM MENSAGEM DE "SEM DADOS") ---
+# --- TAB 5: EXTRATO ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
-    
-    # Consolidação dos dados
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
     a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
     i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
     u = pd.concat([p_ext, a_ext, i_ext], ignore_index=True)
-    
-    # Filtro de data
     ver_tudo = st.checkbox("Exibir Histórico Completo", key="check_ver_tudo")
-    
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
         if not ver_tudo:
             u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
-        
         u = u.sort_values('Data_DT', ascending=False)
-
-    # Exibição dos registros ou mensagem de vazio
-    if u.empty or len(u) == 0:
+    if u.empty:
         st.info("ℹ️ Nenhuma movimentação registrada para este período.")
         vendas, gastos = 0.0, 0.0
     else:
@@ -229,25 +237,35 @@ with tab4:
                 elif row['Origem'] == "Insumos":
                     atualizar_planilha("Insumos", df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))])
                 st.rerun()
-            
             val_num = limpar_valor(row['Valor Total'])
             txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
             col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {val_num:.2f}**")
-
         vendas = u[u['Origem'] == "Pedidos"]['Valor Total'].apply(limpar_valor).sum()
         gastos = u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total'].apply(limpar_valor).sum()
-    
-    # Métricas (Sempre visíveis)
     st.divider()
     c1, c2, c3 = st.columns(3)
     c1.metric("Vendas", f"R$ {vendas:.2f}")
     c2.metric("Saídas", f"R$ {gastos:.2f}")
     c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
 
-    if not u.empty:
-        if st.button("📄 Gerar PDF Detalhado"):
-            pdf = PDF()
-            pdf.add_page()
-            pdf.set_font('Arial', '', 12)
-            pdf.cell(0, 10, f"Relatorio Financeiro - Saldo: R$ {vendas-gastos:.2f}", ln=True)
-            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="relatorio.pdf")
+# --- TAB 6: LEMBRETES ---
+with tab5:
+    st.subheader("📅 Agendar Lembrete de Pagamento")
+    with st.form("f_lembrete"):
+        l_nome = st.text_input("Nome do Lembrete (ex: Aluguel, Fornecedor X)")
+        col_d, col_v = st.columns(2)
+        l_data = col_d.date_input("Data de Pagamento")
+        l_valor = col_v.number_input("Valor R$", min_value=0.0, format="%.2f")
+        if st.form_submit_button("Salvar Lembrete"):
+            novo_l = pd.DataFrame([{"Nome": l_nome, "Data": l_data.strftime("%Y-%m-%d"), "Valor": l_valor}])
+            atualizar_planilha("Lembretes", pd.concat([df_lembretes, novo_l], ignore_index=True))
+            st.success("Lembrete agendado!"); st.rerun()
+    st.markdown("---")
+    st.subheader("📌 Meus Lembretes")
+    if not df_lembretes.empty:
+        for idx, row in df_lembretes.iterrows():
+            c_del, c_info = st.columns([0.08, 0.92])
+            if c_del.button("🗑️", key=f"del_lem_{idx}"):
+                atualizar_planilha("Lembretes", df_lembretes.drop(idx)); st.rerun()
+            c_info.write(f"**{row['Nome']}** - Vence em: {row['Data']} - **R$ {limpar_valor(row['Valor']):.2f}**")
+    else: st.info("Nenhum lembrete cadastrado.")

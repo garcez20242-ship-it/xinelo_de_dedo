@@ -120,7 +120,7 @@ with st.sidebar:
         if alerta_vazio: st.success("✅ Estoque abastecido")
 
 # --- INTERFACE ---
-st.title("🩴 Gestão Xinelo de Dedo v3.6")
+st.title("🩴 Gestão Xinelo de Dedo v3.7")
 tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"])
 
 # --- TAB 1: ESTOQUE ---
@@ -148,11 +148,13 @@ with tab1:
                 df_e_atu = df_estoque.copy()
                 hist_novos, res_txt, total_geral = [], [], 0
                 for it in st.session_state.carrinho_ent:
-                    idx = df_e_atu.index[df_e_atu['Modelo'] == it['Modelo']][0]
-                    df_e_atu.at[idx, it['Tam']] = int(float(df_e_atu.at[idx, it['Tam']])) + it['Qtd']
-                    hist_novos.append({"Data": get_data_hora(), "Modelo": it['Modelo'], "Preco_Unit": it['Unit']})
-                    res_txt.append(f"{it['Modelo']}({it['Tam']}x{it['Qtd']})")
-                    total_geral += it['Sub']
+                    indices = df_e_atu.index[df_e_atu['Modelo'] == it['Modelo']]
+                    if not indices.empty:
+                        idx = indices[0]
+                        df_e_atu.at[idx, it['Tam']] = int(float(df_e_atu.at[idx, it['Tam']])) + it['Qtd']
+                        hist_novos.append({"Data": get_data_hora(), "Modelo": it['Modelo'], "Preco_Unit": it['Unit']})
+                        res_txt.append(f"{it['Modelo']}({it['Tam']}x{it['Qtd']})")
+                        total_geral += it['Sub']
                 atualizar_planilha("Estoque", df_e_atu)
                 atualizar_planilha("Aquisicoes", pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo": " | ".join(res_txt), "Valor Total": total_geral}])], ignore_index=True))
                 atualizar_planilha("Historico_Precos", pd.concat([df_hist_precos, pd.DataFrame(hist_novos)], ignore_index=True))
@@ -188,7 +190,9 @@ with tab2:
             v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Cliente Avulso"], key="v_cli")
             v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="v_mod")
             v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="v_tam")
-            est_disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam].values[0]))
+            # Localiza estoque disponível
+            linha_est = df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam]
+            est_disp = int(float(linha_est.values[0])) if not linha_est.empty else 0
             st.write(f"Disponível: {est_disp}")
             v_pre = st.number_input("Preço Venda R$", min_value=0.0, key="v_pre")
             v_qtd = st.number_input("Qtd", min_value=1, max_value=max(1, est_disp), key="v_qtd")
@@ -196,6 +200,7 @@ with tab2:
                 if est_disp >= v_qtd:
                     st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Sub": v_qtd*v_pre})
                     st.rerun()
+                else: st.error("Estoque insuficiente!")
     with c2:
         st.subheader("📄 Resumo")
         for i, it in enumerate(st.session_state.carrinho_v):
@@ -207,13 +212,22 @@ with tab2:
             forma_v = st.selectbox("Forma", ["Pix", "Dinheiro", "Cartão", "N/A"], key="v_for")
             if st.button("Finalizar Venda", type="primary"):
                 df_e_v = df_estoque.copy()
+                sucesso = True
                 for x in st.session_state.carrinho_v:
-                    ix = df_e_v.index[df_e_v['Modelo'] == x['Mod']][0]
-                    df_e_v.at[ix, x['Tam']] = int(float(df_e_v.at[ix, x['Tam']])) - x['Qtd']
-                resumo = " | ".join([f"{x['Mod']}({x['Tam']}x{x['Qtd']})" for x in st.session_state.carrinho_v])
-                atualizar_planilha("Estoque", df_e_v)
-                atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": resumo, "Valor Total": total_v, "Status Pagto": status_v, "Forma": forma_v}])], ignore_index=True))
-                st.session_state.carrinho_v = []; st.rerun()
+                    # Correção do IndexError: Verifica se o modelo existe antes de indexar
+                    indices = df_e_v.index[df_e_v['Modelo'] == x['Mod']]
+                    if not indices.empty:
+                        ix = indices[0]
+                        df_e_v.at[ix, x['Tam']] = int(float(df_e_v.at[ix, x['Tam']])) - x['Qtd']
+                    else:
+                        st.error(f"Erro: Modelo {x['Mod']} não encontrado no estoque!")
+                        sucesso = False
+                
+                if sucesso:
+                    resumo = " | ".join([f"{x['Mod']}({x['Tam']}x{x['Qtd']})" for x in st.session_state.carrinho_v])
+                    atualizar_planilha("Estoque", df_e_v)
+                    atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": resumo, "Valor Total": total_v, "Status Pagto": status_v, "Forma": forma_v}])], ignore_index=True))
+                    st.session_state.carrinho_v = []; st.rerun()
 
 # --- TAB INSUMOS ---
 with tab_ins:
@@ -265,7 +279,6 @@ with tab4:
                     df_p_atu.loc[mask, 'Status Pagto'] = "Pago"
                     atualizar_planilha("Pedidos", df_p_atu); st.rerun()
             if r['Origem'] == "Pedidos":
-                # O PDF só é gerado quando você clica no botão de download
                 c_pdf.download_button(label="📄 PDF", data=gerar_recibo(r), file_name=f"recibo_{idx}.pdf", mime="application/pdf", key=f"p_{idx}")
             status_p = r['Status Pagto'] if r['Origem'] == "Pedidos" else "Pago"
             prefixo = "🔴" if (r['Origem'] == "Pedidos" and status_p == "Pendente") else "🟢" if r['Tipo'] == "Venda" else "⚪"

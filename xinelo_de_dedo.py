@@ -15,26 +15,17 @@ def get_data_hora():
     return (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
 
 def limpar_valor(valor):
-    """Converte valores da planilha para float de forma segura."""
     try:
         if pd.isna(valor) or str(valor).strip() == "": return 0.0
         v = str(valor).replace('R$', '').replace('.', '').replace(',', '.').strip()
         return float(v)
-    except:
-        return 0.0
+    except: return 0.0
 
 class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 14)
         self.cell(0, 10, 'XINELO DE DEDO - RELATORIO DETALHADO', 0, 1, 'C')
-        self.set_font('Arial', '', 10)
-        self.cell(0, 5, f'Gerado em: {get_data_hora()}', 0, 1, 'C')
         self.ln(10)
-    def chapter_title(self, label):
-        self.set_font('Arial', 'B', 12)
-        self.set_fill_color(200, 220, 255)
-        self.cell(0, 8, label, 0, 1, 'L', 1)
-        self.ln(4)
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=0)
@@ -65,7 +56,20 @@ def atualizar_planilha(aba, dataframe):
     conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
     st.cache_data.clear()
 
-# --- INTERFACE ---
+# --- TÍTULO E SIDEBAR (RESTAURADOS) ---
+st.title("🩴 Xinelo de Dedo - Gestão Pro")
+
+with st.sidebar:
+    st.header("⚙️ Opções do Sistema")
+    st.write("Use esta barra para filtros globais ou ações rápidas.")
+    ver_tudo = st.checkbox("Exibir Histórico Completo", help="Se desmarcado, mostra apenas o mês atual.")
+    if st.button("🔄 Atualizar Dados"):
+        st.cache_data.clear()
+        st.rerun()
+    st.divider()
+    st.info(f"Último acesso: {get_data_hora()}")
+
+# --- INTERFACE POR ABAS ---
 tab1, tab_cad, tab2, tab_ins, tab3, tab4 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato & PDF"])
 
 # --- TAB 1: ESTOQUE ---
@@ -107,13 +111,14 @@ with tab1:
             cl_txt.write(f"**{row['Modelo']}**")
         st.dataframe(df_estoque, hide_index=True)
 
-# --- TAB CADASTRO ---
+# --- TAB CADASTRO MODELOS ---
 with tab_cad:
+    st.subheader("✨ Cadastrar Novo Modelo")
     with st.form("f_cad_mod"):
-        n_m = st.text_input("Novo Modelo")
+        n_m = st.text_input("Nome do Modelo")
         cols = st.columns(5)
         ipts = {t: cols[i%5].number_input(f"T {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
-        if st.form_submit_button("Cadastrar"):
+        if st.form_submit_button("Finalizar Cadastro"):
             if n_m:
                 ni = {"Modelo": n_m}; ni.update(ipts)
                 atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.success("Cadastrado!"); st.rerun()
@@ -136,6 +141,7 @@ with tab2:
                 st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Preco": v_pre, "Sub": v_qtd*v_pre})
                 st.rerun()
     with c2:
+        st.subheader("📄 Carrinho de Venda")
         for idx, it in enumerate(st.session_state.carrinho_v):
             cl_d, cl_t = st.columns([0.1, 0.9])
             if cl_d.button("🗑️", key=f"dv_v_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
@@ -159,11 +165,12 @@ with tab2:
 with tab_ins:
     st.subheader("🛠️ Gastos com Insumos")
     with st.form("f_ins_novo"):
-        desc_i = st.text_input("Descrição")
+        desc_i = st.text_input("Descrição do Gasto")
         val_i = st.number_input("Valor R$", min_value=0.0, format="%.2f")
-        if st.form_submit_button("Salvar Insumo"):
+        if st.form_submit_button("Salvar Gasto"):
             atualizar_planilha("Insumos", pd.concat([df_insumos, pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc_i, "Valor": val_i}])], ignore_index=True))
             st.rerun()
+    st.markdown("---")
     for idx, row in df_insumos.iterrows():
         cl_del, cl_txt = st.columns([0.08, 0.92])
         if cl_del.button("🗑️", key=f"ex_ins_list_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
@@ -171,7 +178,7 @@ with tab_ins:
 
 # --- TAB CLIENTES ---
 with tab3:
-    st.subheader("👥 Cadastro de Clientes")
+    st.subheader("👥 Clientes")
     with st.form("f_cli"):
         c1, c2 = st.columns(2)
         n_c, l_c = c1.text_input("Nome"), c2.text_input("Loja")
@@ -179,11 +186,11 @@ with tab3:
         if st.form_submit_button("Salvar Cliente"):
             atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": ci_c, "Telefone": t_c}])], ignore_index=True))
             st.rerun()
-    st.dataframe(df_clientes, hide_index=True)
+    st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO (CORRIGIDO PARA EVITAR VALUEERROR) ---
+# --- TAB 5: EXTRATO & PDF ---
 with tab4:
-    st.subheader("🧾 Histórico de Movimentações")
+    st.subheader("🧾 Extrato Financeiro")
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
     a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
     i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
@@ -191,8 +198,7 @@ with tab4:
     
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        ver_tudo = st.checkbox("Ver histórico completo")
-        if not ver_tudo:
+        if not ver_tudo: # Filtro vindo da Sidebar
             u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
         u = u.sort_values('Data_DT', ascending=False)
 
@@ -200,17 +206,12 @@ with tab4:
             col_del, col_info = st.columns([0.08, 0.92])
             if col_del.button("🗑️", key=f"del_ext_{idx}"):
                 if row['Origem'] == "Pedidos":
-                    df_novo = df_pedidos[~((df_pedidos['Data'] == row['Data']) & (df_pedidos['Cliente'] == row['Cliente']))]
-                    atualizar_planilha("Pedidos", df_novo)
+                    atualizar_planilha("Pedidos", df_pedidos[~((df_pedidos['Data'] == row['Data']) & (df_pedidos['Cliente'] == row['Cliente']))])
                 elif row['Origem'] == "Aquisicoes":
-                    df_novo = df_aquisicoes[~((df_aquisicoes['Data'] == row['Data']) & (df_aquisicoes['Resumo'] == row['Resumo']))]
-                    atualizar_planilha("Aquisicoes", df_novo)
+                    atualizar_planilha("Aquisicoes", df_aquisicoes[~((df_aquisicoes['Data'] == row['Data']) & (df_aquisicoes['Resumo'] == row['Resumo']))])
                 elif row['Origem'] == "Insumos":
-                    df_novo = df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))]
-                    atualizar_planilha("Insumos", df_novo)
+                    atualizar_planilha("Insumos", df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))])
                 st.rerun()
-            
-            # PROTEÇÃO CONTRA VALOR INVÁLIDO AQUI:
             val_num = limpar_valor(row['Valor Total'])
             txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
             col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {val_num:.2f}**")
@@ -218,16 +219,15 @@ with tab4:
         vendas = u[u['Origem'] == "Pedidos"]['Valor Total'].apply(limpar_valor).sum()
         gastos = u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total'].apply(limpar_valor).sum()
         
-        st.markdown("---")
+        st.divider()
         c1, c2, c3 = st.columns(3)
-        c1.metric("Vendas (Mês)", f"R$ {vendas:.2f}")
-        c2.metric("Saídas (Mês)", f"R$ {gastos:.2f}")
-        c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
+        c1.metric("Vendas (Período)", f"R$ {vendas:.2f}")
+        c2.metric("Saídas (Período)", f"R$ {gastos:.2f}")
+        c3.metric("Saldo Líquido", f"R$ {vendas - gastos:.2f}")
 
-        if st.button("📄 Gerar PDF Detalhado"):
+        if st.button("📄 Gerar PDF Completo"):
             pdf = PDF()
             pdf.add_page()
-            pdf.chapter_title("EXTRATO")
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 10, f"Lucro: R$ {vendas-gastos:.2f}", ln=True)
-            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
+            pdf.set_font('Arial', '', 12)
+            pdf.cell(0, 10, f"Lucro Total: R$ {vendas-gastos:.2f}", ln=True)
+            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="relatorio.pdf")

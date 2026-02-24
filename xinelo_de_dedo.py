@@ -6,8 +6,8 @@ from fpdf import FPDF
 import time
 
 # --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="Gestão Master v7.1", layout="wide", page_icon="🩴")
-st.title("🩴 Gestão Master v7.1 - Blindada")
+st.set_page_config(page_title="Gestão Master v7.2", layout="wide", page_icon="🩴")
+st.title("🩴 Gestão Master v7.2")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
@@ -54,6 +54,9 @@ def carregar_dados():
                 df.columns = df.columns.str.strip()
                 for c in colunas:
                     if c not in df.columns: df[c] = ""
+                # ORGANIZAÇÃO ALFABÉTICA NO ESTOQUE
+                if aba == "Estoque":
+                    df = df.sort_values(by="Modelo", ascending=True)
                 leitura[aba] = df
             else: leitura[aba] = pd.DataFrame(columns=colunas)
         except: leitura[aba] = pd.DataFrame(columns=colunas)
@@ -82,14 +85,15 @@ with st.sidebar:
 tabs = st.tabs(["📊 Estoque", "✨ Novos Modelos", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
 
 with tabs[0]: # ESTOQUE
-    st.subheader("📋 Gestão de Inventário")
+    st.subheader("📋 Gestão de Inventário (Ordem Alfabética)")
     st.dataframe(df_est, hide_index=True)
     
     with st.expander("➕ Entrada de Compra (Lote Multi-Modelo)", expanded=True):
         if 'entrada_lote' not in st.session_state: st.session_state.entrada_lote = []
-        
         c1, c2, c3 = st.columns(3)
-        mod_e = c1.selectbox("Modelo", df_est['Modelo'].unique()) if not df_est.empty else None
+        # Modelos em ordem alfabética no selectbox
+        modelos_ordenados = sorted(df_est['Modelo'].unique()) if not df_est.empty else []
+        mod_e = c1.selectbox("Modelo", modelos_ordenados)
         tam_e = c2.selectbox("Tamanho", TAMANHOS_PADRAO)
         qtd_e = c3.number_input("Qtd", min_value=1, key="input_qtd_entrada")
         
@@ -99,8 +103,7 @@ with tabs[0]: # ESTOQUE
         
         if st.session_state.entrada_lote:
             st.write("**Lote de Entrada:**")
-            df_lote = pd.DataFrame(st.session_state.entrada_lote)
-            st.table(df_lote)
+            st.table(pd.DataFrame(st.session_state.entrada_lote))
             
             if st.button("❌ Limpar Lote"):
                 st.session_state.entrada_lote = []
@@ -109,7 +112,7 @@ with tabs[0]: # ESTOQUE
             val_total_compra = st.number_input("Valor Total da Compra (R$)", min_value=0.0)
             
             if st.button("🏁 Finalizar e Salvar no Banco", type="primary"):
-                with st.spinner("Sincronizando com Google Sheets..."):
+                with st.spinner("Sincronizando..."):
                     df_atu = df_est.copy()
                     res_compra = []
                     for item in st.session_state.entrada_lote:
@@ -119,17 +122,16 @@ with tabs[0]: # ESTOQUE
                         res_compra.append(f"{item['Modelo']}({item['Tam']}x{item['Qtd']})")
                     
                     if salvar("Estoque", df_atu):
-                        time.sleep(2) # Pausa para evitar erro 429
+                        time.sleep(1)
                         nova_v = pd.DataFrame([{"Data": get_data_hora(), "Cliente": "FORNECEDOR", "Resumo": f"ENTRADA: {' | '.join(res_compra)}", "Valor Total": val_total_compra, "Status Pagto": "Pago"}])
                         if salvar("Pedidos", pd.concat([df_ped, nova_v], ignore_index=True)):
                             st.session_state.entrada_lote = []
-                            st.success("Tudo salvo com sucesso!")
-                            time.sleep(1)
-                            st.rerun()
+                            st.success("Salvo com sucesso!")
+                            time.sleep(1); st.rerun()
 
     with st.expander("🗑️ Apagar Modelo"):
         if not df_est.empty:
-            mod_apagar = st.selectbox("Modelo para REMOVER", df_est['Modelo'].unique())
+            mod_apagar = st.selectbox("Modelo para REMOVER", sorted(df_est['Modelo'].unique()))
             if st.button("Confirmar Exclusão"):
                 salvar("Estoque", df_est[df_est['Modelo'] != mod_apagar])
                 st.rerun()
@@ -147,8 +149,8 @@ with tabs[1]: # NOVOS MODELOS
 with tabs[2]: # VENDAS
     c1, c2 = st.columns(2)
     with c1:
-        v_cl = st.selectbox("Cliente", list(df_cli['Nome'].unique()) + ["Avulso"]) if not df_cli.empty else st.selectbox("Cliente", ["Avulso"])
-        v_mo = st.selectbox("Modelo ", df_est['Modelo'].unique()) if not df_est.empty else None
+        v_cl = st.selectbox("Cliente", sorted(list(df_cli['Nome'].unique())) + ["Avulso"]) if not df_cli.empty else st.selectbox("Cliente", ["Avulso"])
+        v_mo = st.selectbox("Modelo ", sorted(df_est['Modelo'].unique())) if not df_est.empty else None
         v_ta = st.selectbox("Tam ", TAMANHOS_PADRAO)
         v_pr = st.number_input("Preço R$", min_value=0.0)
         v_qt = st.number_input("Qtd Vendida", min_value=1)
@@ -179,7 +181,7 @@ with tabs[4]: # CLIENTES
         if st.form_submit_button("Salvar"):
             salvar("Clientes", pd.concat([df_cli, pd.DataFrame([{"Nome": cn, "Loja": cl, "Cidade": cc, "Telefone": ct}])], ignore_index=True))
             st.rerun()
-    st.dataframe(df_cli, hide_index=True)
+    st.dataframe(df_cli.sort_values(by="Nome"), hide_index=True)
 
 with tabs[5]: # EXTRATO
     if not df_ped.empty:

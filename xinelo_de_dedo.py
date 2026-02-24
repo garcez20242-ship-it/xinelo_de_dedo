@@ -56,20 +56,27 @@ def atualizar_planilha(aba, dataframe):
     conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
     st.cache_data.clear()
 
-# --- TÍTULO E SIDEBAR (RESTAURADOS) ---
+# --- BARRA LATERAL: ALERTAS DE ESTOQUE ---
+with st.sidebar:
+    st.header("⚠️ Alertas de Estoque")
+    st.write("Produtos com menos de 3 unidades:")
+    alerta_vazio = True
+    if not df_estoque.empty:
+        for _, row in df_estoque.iterrows():
+            for tam in TAMANHOS_PADRAO:
+                qtd = int(float(row[tam])) if str(row[tam]) != "" else 0
+                if 0 < qtd <= 3:
+                    st.warning(f"**{row['Modelo']}**\nTam: {tam} | Qtd: {qtd}")
+                    alerta_vazio = False
+                elif qtd == 0:
+                    st.error(f"**{row['Modelo']}**\nTam: {tam} | ESGOTADO")
+                    alerta_vazio = False
+    if alerta_vazio:
+        st.success("✅ Estoque em dia!")
+
+# --- INTERFACE PRINCIPAL ---
 st.title("🩴 Xinelo de Dedo - Gestão Pro")
 
-with st.sidebar:
-    st.header("⚙️ Opções do Sistema")
-    st.write("Use esta barra para filtros globais ou ações rápidas.")
-    ver_tudo = st.checkbox("Exibir Histórico Completo", help="Se desmarcado, mostra apenas o mês atual.")
-    if st.button("🔄 Atualizar Dados"):
-        st.cache_data.clear()
-        st.rerun()
-    st.divider()
-    st.info(f"Último acesso: {get_data_hora()}")
-
-# --- INTERFACE POR ABAS ---
 tab1, tab_cad, tab2, tab_ins, tab3, tab4 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato & PDF"])
 
 # --- TAB 1: ESTOQUE ---
@@ -111,7 +118,7 @@ with tab1:
             cl_txt.write(f"**{row['Modelo']}**")
         st.dataframe(df_estoque, hide_index=True)
 
-# --- TAB CADASTRO MODELOS ---
+# --- TAB CADASTRO ---
 with tab_cad:
     st.subheader("✨ Cadastrar Novo Modelo")
     with st.form("f_cad_mod"):
@@ -170,7 +177,6 @@ with tab_ins:
         if st.form_submit_button("Salvar Gasto"):
             atualizar_planilha("Insumos", pd.concat([df_insumos, pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc_i, "Valor": val_i}])], ignore_index=True))
             st.rerun()
-    st.markdown("---")
     for idx, row in df_insumos.iterrows():
         cl_del, cl_txt = st.columns([0.08, 0.92])
         if cl_del.button("🗑️", key=f"ex_ins_list_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
@@ -188,7 +194,7 @@ with tab3:
             st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO & PDF ---
+# --- TAB 5: EXTRATO (COM FILTRO RESTAURADO) ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
@@ -198,8 +204,12 @@ with tab4:
     
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        if not ver_tudo: # Filtro vindo da Sidebar
+        
+        # Filtro restaurado para dentro da aba
+        ver_tudo = st.checkbox("Exibir Histórico Completo", key="check_ver_tudo")
+        if not ver_tudo:
             u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
+        
         u = u.sort_values('Data_DT', ascending=False)
 
         for idx, row in u.iterrows():
@@ -221,11 +231,11 @@ with tab4:
         
         st.divider()
         c1, c2, c3 = st.columns(3)
-        c1.metric("Vendas (Período)", f"R$ {vendas:.2f}")
-        c2.metric("Saídas (Período)", f"R$ {gastos:.2f}")
-        c3.metric("Saldo Líquido", f"R$ {vendas - gastos:.2f}")
+        c1.metric("Vendas", f"R$ {vendas:.2f}")
+        c2.metric("Saídas", f"R$ {gastos:.2f}")
+        c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
 
-        if st.button("📄 Gerar PDF Completo"):
+        if st.button("📄 Gerar PDF Detalhado"):
             pdf = PDF()
             pdf.add_page()
             pdf.set_font('Arial', '', 12)

@@ -84,14 +84,15 @@ with tab1:
     with c1:
         st.subheader("📦 Entrada de Mercadoria")
         if not df_estoque.empty:
-            m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique())
-            t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO)
+            # ADICIONADO KEY="ent_modelo"
+            m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="ent_modelo")
+            t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="ent_tamanho")
             col_q, col_v = st.columns(2)
-            q_aq = col_q.number_input("Qtd", min_value=1, step=1)
-            v_uni = col_v.number_input("Valor Unit. (R$)", min_value=0.0, format="%.2f")
+            q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="ent_qtd")
+            v_uni = col_v.number_input("Valor Unit. (R$)", min_value=0.0, format="%.2f", key="ent_valor_uni")
             v_subtotal = q_aq * v_uni
             st.info(f"Subtotal: R$ {v_subtotal:.2f}")
-            if st.button("➕ Adicionar à Carga"):
+            if st.button("➕ Adicionar à Carga", key="btn_add_carga"):
                 st.session_state.carrinho_ent.append({
                     "Modelo": m_aq, "Tamanho": t_aq, "Qtd": q_aq, "Unitário": v_uni, "Subtotal": v_subtotal
                 })
@@ -99,7 +100,7 @@ with tab1:
                 st.table(pd.DataFrame(st.session_state.carrinho_ent))
                 total_carga = sum(i['Subtotal'] for i in st.session_state.carrinho_ent)
                 st.write(f"**Total da Carga: R$ {total_carga:.2f}**")
-                if st.button("✅ Confirmar Entrada"):
+                if st.button("✅ Confirmar Entrada", key="btn_confirmar_carga"):
                     resumo_f = []
                     for item in st.session_state.carrinho_ent:
                         idx = df_estoque.index[df_estoque['Modelo'] == item['Modelo']][0]
@@ -108,7 +109,8 @@ with tab1:
                     nova_aq = pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(resumo_f), "Valor Total": f"{total_carga:.2f}"}])
                     df_aquisicoes = pd.concat([df_aquisicoes, nova_aq], ignore_index=True)
                     atualizar_planilha("Estoque", df_estoque); atualizar_planilha("Aquisicoes", df_aquisicoes)
-                    st.session_state.carrinho_ent = []; st.rerun()
+                    st.session_state.carrinho_ent = []
+                    st.rerun()
         else: st.info("Cadastre modelos primeiro.")
     with c2:
         st.subheader("📋 Inventário")
@@ -120,7 +122,7 @@ with tab_cad:
     with st.form("f_novo", clear_on_submit=True):
         n_m = st.text_input("Nome do Modelo")
         cols = st.columns(5)
-        ipts = {t: cols[i%5].number_input(f"T {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
+        ipts = {t: cols[i%5].number_input(f"T {t}", min_value=0, key=f"cad_t_{t}") for i, t in enumerate(TAMANHOS_PADRAO)}
         if st.form_submit_button("Cadastrar"):
             if n_m and n_m not in df_estoque['Modelo'].values:
                 ni = {"Modelo": n_m}; ni.update(ipts)
@@ -133,20 +135,21 @@ with tab2:
     c1, c2 = st.columns([1, 1])
     with c1:
         st.subheader("🛒 Carrinho")
-        v_c = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Nenhum"])
-        v_m = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["Nenhum"])
-        v_t = st.selectbox("Tamanho", TAMANHOS_PADRAO)
+        # ADICIONADO KEY="venda_cliente" E "venda_modelo"
+        v_c = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Nenhum"], key="venda_cliente")
+        v_m = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["Nenhum"], key="venda_modelo")
+        v_t = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="venda_tamanho")
         try:
             disp = int(df_estoque.loc[df_estoque['Modelo'] == v_m, v_t].values[0])
         except: disp = 0
         st.info(f"Disponível: {disp}")
-        v_q = st.number_input("Qtd", min_value=0, max_value=disp, step=1)
-        if st.button("➕ Add Carrinho"):
+        v_q = st.number_input("Qtd", min_value=0, max_value=disp, step=1, key="venda_qtd")
+        if st.button("➕ Add Carrinho", key="btn_add_venda"):
             if v_q > 0: st.session_state.carrinho_v.append({"Modelo": v_m, "Tamanho": v_t, "Qtd": v_q})
     with c2:
         if st.session_state.carrinho_v:
             st.table(pd.DataFrame(st.session_state.carrinho_v))
-            if st.button("🚀 Finalizar Venda"):
+            if st.button("🚀 Finalizar Venda", key="btn_finalizar_venda"):
                 res = []
                 for it in st.session_state.carrinho_v:
                     idx = df_estoque.index[df_estoque['Modelo'] == it['Modelo']][0]

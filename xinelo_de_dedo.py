@@ -101,7 +101,8 @@ with tab1:
                         df_e_new.at[idx, i['Tamanho']] = val_at + i['Qtd']
                         res_f.append(f"{i['Modelo']}({i['Tamanho']}) x{i['Qtd']}")
                     
-                    nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": f"{total_compra:.2f}"}])], ignore_index=True)
+                    # SALVANDO VALOR TOTAL NA PLANILHA DE AQUISIÇÕES
+                    nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": total_compra}])], ignore_index=True)
                     atualizar_planilha("Estoque", df_e_new)
                     atualizar_planilha("Aquisicoes", nova_aq)
                     st.session_state.carrinho_ent = []; st.rerun()
@@ -124,7 +125,7 @@ with tab_cad:
                 ni = {"Modelo": n_m}; ni.update(ipts)
                 atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.rerun()
 
-# --- TAB 3: VENDAS (VALORES COMPLETOS) ---
+# --- TAB 3: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
@@ -159,12 +160,13 @@ with tab2:
                     df_ev.at[ix, it['Tamanho']] = int(float(df_ev.at[ix, it['Tamanho']])) - it['Qtd']
                     res_v.append(f"{it['Modelo']}({it['Tamanho']} x{it['Qtd']})")
                 
-                nova_venda = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": f"{total_venda:.2f}"}])], ignore_index=True)
+                # SALVANDO VALOR TOTAL NA PLANILHA DE PEDIDOS
+                nova_venda = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": total_venda}])], ignore_index=True)
                 atualizar_planilha("Estoque", df_ev)
                 atualizar_planilha("Pedidos", nova_venda)
                 st.session_state.carrinho_v = []; st.rerun()
 
-# --- TAB 4: CLIENTES (LOJA E CIDADE SEPARADOS) ---
+# --- TAB 4: CLIENTES ---
 with tab3:
     st.subheader("👥 Cadastro de Clientes")
     with st.form("f_cli"):
@@ -177,20 +179,23 @@ with tab3:
                 st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO FINANCEIRO ---
+# --- TAB 5: EXTRATO (VALORES VISÍVEIS) ---
 with tab4:
     st.subheader("🧾 Extrato de Movimentação")
-    # Processa Saídas (Vendas)
+    
+    # Processa Saídas
     ev = df_pedidos.copy()
     ev['Tipo'] = "🔴 SAÍDA"
     ev['Descrição'] = ev['Cliente'].astype(str) + ": " + ev['Resumo do Pedido'].astype(str)
-    ev['Total'] = ev['Valor Total'].apply(lambda x: f"R$ {float(x):.2f}" if x != "" else "R$ 0.00")
+    # Formata a coluna Total para exibir R$
+    ev['Total'] = ev['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(x) else "R$ 0.00")
     
-    # Processa Entradas (Compras)
+    # Processa Entradas
     ea = df_aquisicoes.copy()
     ea['Tipo'] = "🟢 ENTRADA"
     ea['Descrição'] = ea['Resumo da Carga'].astype(str)
-    ea['Total'] = ea['Valor Total'].apply(lambda x: f"R$ {float(x):.2f}" if x != "" else "R$ 0.00")
+    # Formata a coluna Total para exibir R$
+    ea['Total'] = ea['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(x) else "R$ 0.00")
     
     u = pd.concat([ev[['Data', 'Tipo', 'Descrição', 'Total']], ea[['Data', 'Tipo', 'Descrição', 'Total']]], ignore_index=True)
     if not u.empty:

@@ -6,10 +6,10 @@ from fpdf import FPDF
 import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Gestão Xinelo v6.1", layout="wide", page_icon="🩴")
+st.set_page_config(page_title="Gestão Xinelo v6.2", layout="wide", page_icon="🩴")
 
 # --- TÍTULO ---
-st.title("🩴 Gestão Xinelo de Dedo v6.1 - Sistema Completo")
+st.title("🩴 Gestão Xinelo de Dedo v6.2")
 st.markdown("---")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
@@ -74,15 +74,14 @@ df_pedidos, df_clientes = d["ped"], d["cli"].sort_values("Nome") if not d["cli"]
 df_insumos, df_lembretes, df_aquisicoes = d["ins"], d["lem"], d["aqui"]
 
 def salvar_blindado(aba, df_novo, df_antigo):
-    if len(df_antigo) > 1 and len(df_novo) <= 1:
-        st.error("🚨 BLOQUEIO: Falha de sincronização. Tente novamente em 10s.")
+    if len(df_antigo) > 0 and len(df_novo) == 0:
+        st.error("🚨 BLOQUEIO: Falha de sincronização. Tente salvar novamente.")
         return False
     try:
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_novo.astype(str).replace('nan', ''))
         st.cache_data.clear()
-        st.success("✅ Sincronizado!")
-        time.sleep(1)
-        st.rerun()
+        st.success("✅ Atualizado!")
+        time.sleep(1); st.rerun()
     except Exception as e: st.error(f"Erro: {e}")
 
 # --- BARRA LATERAL ---
@@ -92,22 +91,25 @@ with st.sidebar:
         st.cache_data.clear(); st.rerun()
     
     st.divider()
-    st.header("💳 Fiados")
-    if not df_pedidos.empty:
-        p = df_pedidos[df_pedidos['Status Pagto'].str.contains("Pendente", case=False, na=False)]
-        if not p.empty:
-            st.warning(f"**Total: R$ {p['Valor Total'].apply(limpar_valor).sum():.2f}**")
-            for c, v in p.groupby('Cliente')['Valor Total'].apply(lambda x: x.apply(limpar_valor).sum()).items():
-                st.caption(f"👤 {c}: R$ {v:.2f}")
+    st.header("📅 Contas a Pagar (Lembretes)")
+    if not df_lembretes.empty:
+        total_contas = df_lembretes['Valor'].apply(limpar_valor).sum()
+        st.warning(f"**Total em Lembretes: R$ {total_contas:.2f}**")
+        for _, r in df_lembretes.iterrows():
+            st.caption(f"📌 {r['Nome']} ({r['Data']}): R$ {limpar_valor(r['Valor']):.2f}")
+    else:
+        st.success("Nenhum pagamento pendente nos lembretes.")
 
     st.divider()
     st.header("⚠️ Estoque Baixo")
     for _, r in df_estoque.iterrows():
-        criticos = [f"{t}({int(float(r[t]))})" for t in TAMANHOS_PADRAO if (int(float(r[t])) if r[t]!="" else 0) <= 3]
-        if criticos: st.error(f"**{r['Modelo']}**\n{', '.join(criticos)}")
+        crit = [f"{t}({int(float(r[t]))})" for t in TAMANHOS_PADRAO if (int(float(r[t])) if r[t]!="" else 0) <= 3]
+        if crit: st.error(f"**{r['Modelo']}**\n{', '.join(crit)}")
 
 # --- ABAS ---
 tabs = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
+
+# [Todas as abas permanecem com o código completo das versões anteriores]
 
 with tabs[0]: # 1. ESTOQUE
     st.subheader("📋 Inventário A-Z")
@@ -137,14 +139,14 @@ with tabs[1]: # 2. NOVO MODELO
 with tabs[2]: # 3. VENDAS
     c1, c2 = st.columns(2)
     with c1:
-        v_c = st.selectbox("Cliente", list(df_clientes['Nome'].unique()) + ["Avulso"])
-        v_m = st.selectbox("Modelo ", df_estoque['Modelo'].unique())
-        v_t = st.selectbox("Tam ", TAMANHOS_PADRAO)
-        v_p = st.number_input("Preço R$ ", min_value=0.0)
-        v_q = st.number_input("Qtd ", min_value=1)
+        v_cl = st.selectbox("Cliente", list(df_clientes['Nome'].unique()) + ["Avulso"])
+        v_mo = st.selectbox("Modelo ", df_estoque['Modelo'].unique())
+        v_ta = st.selectbox("Tam ", TAMANHOS_PADRAO)
+        v_pr = st.number_input("Preço R$ ", min_value=0.0)
+        v_qt = st.number_input("Qtd ", min_value=1)
         if st.button("➕ Adicionar"):
             if 'c' not in st.session_state: st.session_state.c = []
-            st.session_state.c.append({"Mod": v_m, "Tam": v_t, "Qtd": v_q, "Pre": v_p})
+            st.session_state.c.append({"Mod": v_mo, "Tam": v_ta, "Qtd": v_qt, "Pre": v_pr})
             st.rerun()
     with c2:
         if 'c' in st.session_state and st.session_state.c:
@@ -153,14 +155,14 @@ with tabs[2]: # 3. VENDAS
                 st.write(f"**{it['Mod']} {it['Tam']}** x{it['Qtd']} - R$ {it['Pre']*it['Qtd']:.2f}")
                 if st.button("🗑️", key=f"c_{i}"): st.session_state.c.pop(i); st.rerun()
                 tot += it['Pre']*it['Qtd']; res.append(f"{it['Mod']}({it['Tam']}x{it['Qtd']})")
-            v_s = st.radio("Status", ["Pago", "Pendente"], horizontal=True)
-            if st.button("🚀 Finalizar Venda", type="primary"):
+            v_st = st.radio("Status", ["Pago", "Pendente"], horizontal=True)
+            if st.button("🚀 Finalizar Venda"):
                 df_e = df_estoque.copy()
                 for it in st.session_state.c:
                     idx = df_e.index[df_e['Modelo'] == it['Mod']][0]
                     df_e.at[idx, it['Tam']] = int(float(df_e.at[idx, it['Tam']])) - it['Qtd']
                 salvar_blindado("Estoque", df_e, df_estoque)
-                salvar_blindado("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo": " | ".join(res), "Valor Total": tot, "Status Pagto": v_s}])]), df_pedidos)
+                salvar_blindado("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cl, "Resumo": " | ".join(res), "Valor Total": tot, "Status Pagto": v_st}])]), df_pedidos)
                 st.session_state.c = []; st.rerun()
 
 with tabs[3]: # 4. INSUMOS
@@ -191,7 +193,7 @@ with tabs[5]: # 6. EXTRATO
 
 with tabs[6]: # 7. LEMBRETES
     with st.form("f_l"):
-        t_l = st.text_input("Título"); v_l = st.number_input("Valor R$ ", min_value=0.0)
-        if st.form_submit_button("Agendar"):
+        t_l = st.text_input("O que pagar?"); v_l = st.number_input("Valor R$", min_value=0.0)
+        if st.form_submit_button("Agendar Pagamento"):
             salvar_blindado("Lembretes", pd.concat([df_lembretes, pd.DataFrame([{"Data": get_data_hora(), "Nome": t_l, "Valor": v_l}])]), df_lembretes)
     st.dataframe(df_lembretes, hide_index=True)

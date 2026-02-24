@@ -14,6 +14,15 @@ TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38"
 def get_data_hora():
     return (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
 
+def limpar_valor(valor):
+    """Converte valores da planilha para float de forma segura."""
+    try:
+        if pd.isna(valor) or str(valor).strip() == "": return 0.0
+        v = str(valor).replace('R$', '').replace('.', '').replace(',', '.').strip()
+        return float(v)
+    except:
+        return 0.0
+
 class PDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 14)
@@ -21,7 +30,6 @@ class PDF(FPDF):
         self.set_font('Arial', '', 10)
         self.cell(0, 5, f'Gerado em: {get_data_hora()}', 0, 1, 'C')
         self.ln(10)
-
     def chapter_title(self, label):
         self.set_font('Arial', 'B', 12)
         self.set_fill_color(200, 220, 255)
@@ -159,39 +167,39 @@ with tab_ins:
     for idx, row in df_insumos.iterrows():
         cl_del, cl_txt = st.columns([0.08, 0.92])
         if cl_del.button("🗑️", key=f"ex_ins_list_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
-        cl_txt.write(f"{row['Data']} - {row['Descricao']} - **R$ {float(row['Valor']):.2f}**")
+        cl_txt.write(f"{row['Data']} - {row['Descricao']} - **R$ {limpar_valor(row['Valor']):.2f}**")
 
-# --- TAB 5: EXTRATO (COM FUNÇÃO DE APAGAR REGISTRO) ---
+# --- TAB CLIENTES ---
+with tab3:
+    st.subheader("👥 Cadastro de Clientes")
+    with st.form("f_cli"):
+        c1, c2 = st.columns(2)
+        n_c, l_c = c1.text_input("Nome"), c2.text_input("Loja")
+        ci_c, t_c = c1.text_input("Cidade"), c2.text_input("Telefone")
+        if st.form_submit_button("Salvar Cliente"):
+            atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": ci_c, "Telefone": t_c}])], ignore_index=True))
+            st.rerun()
+    st.dataframe(df_clientes, hide_index=True)
+
+# --- TAB 5: EXTRATO (CORRIGIDO PARA EVITAR VALUEERROR) ---
 with tab4:
     st.subheader("🧾 Histórico de Movimentações")
-    
-    # Prepara os dados com IDs de origem para saber o que apagar
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
     a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
     i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
-    
     u = pd.concat([p_ext, a_ext, i_ext], ignore_index=True)
     
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        
-        c_filt1, c_filt2 = st.columns([1, 3])
-        ver_tudo = c_filt1.checkbox("Ver histórico completo")
+        ver_tudo = st.checkbox("Ver histórico completo")
         if not ver_tudo:
             u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
-        
-        # Ordenar por data mais recente
         u = u.sort_values('Data_DT', ascending=False)
 
-        # Listagem com Lixeira Mini para apagar
         for idx, row in u.iterrows():
             col_del, col_info = st.columns([0.08, 0.92])
-            
-            # Botão de apagar no extrato
             if col_del.button("🗑️", key=f"del_ext_{idx}"):
-                # Lógica para saber de qual aba apagar
                 if row['Origem'] == "Pedidos":
-                    # Removemos usando a Data e o Cliente como referência única
                     df_novo = df_pedidos[~((df_pedidos['Data'] == row['Data']) & (df_pedidos['Cliente'] == row['Cliente']))]
                     atualizar_planilha("Pedidos", df_novo)
                 elif row['Origem'] == "Aquisicoes":
@@ -200,17 +208,15 @@ with tab4:
                 elif row['Origem'] == "Insumos":
                     df_novo = df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))]
                     atualizar_planilha("Insumos", df_novo)
-                
-                st.success("Registro removido do histórico!")
                 st.rerun()
             
-            # Informação da linha
+            # PROTEÇÃO CONTRA VALOR INVÁLIDO AQUI:
+            val_num = limpar_valor(row['Valor Total'])
             txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
-            col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {float(row['Valor Total']):.2f}**")
+            col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {val_num:.2f}**")
 
-        # RESUMO FINANCEIRO
-        vendas = pd.to_numeric(u[u['Origem'] == "Pedidos"]['Valor Total']).sum()
-        gastos = pd.to_numeric(u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total']).sum()
+        vendas = u[u['Origem'] == "Pedidos"]['Valor Total'].apply(limpar_valor).sum()
+        gastos = u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total'].apply(limpar_valor).sum()
         
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
@@ -218,14 +224,10 @@ with tab4:
         c2.metric("Saídas (Mês)", f"R$ {gastos:.2f}")
         c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
 
-        if st.button("📄 Gerar PDF Detalhado", key="btn_pdf_final"):
+        if st.button("📄 Gerar PDF Detalhado"):
             pdf = PDF()
             pdf.add_page()
-            pdf.chapter_title("RELATORIO DE MOVIMENTACAO")
+            pdf.chapter_title("EXTRATO")
             pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 10, f"Total Vendas: R$ {vendas:.2f}", ln=True)
-            pdf.cell(0, 10, f"Total Gastos: R$ {gastos:.2f}", ln=True)
-            pdf.cell(0, 10, f"Saldo: R$ {vendas-gastos:.2f}", ln=True)
+            pdf.cell(0, 10, f"Lucro: R$ {vendas-gastos:.2f}", ln=True)
             st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
-    else:
-        st.info("Nenhum registro encontrado.")

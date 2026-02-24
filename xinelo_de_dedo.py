@@ -9,6 +9,10 @@ import time
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Xinelo de Dedo v4.9", layout="wide", page_icon="🩴")
 
+# --- TÍTULO DO SISTEMA ---
+st.title("🩴 Gestão Xinelo de Dedo v4.9")
+st.markdown("---")
+
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
 

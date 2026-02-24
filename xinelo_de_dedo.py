@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
@@ -8,6 +8,10 @@ st.set_page_config(page_title="Xinelo de Dedo", layout="wide", page_icon="🩴")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
+
+# --- FUNÇÃO DE DATA/HORA (FUSO -3) ---
+def get_data_hora():
+    return (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=0)
@@ -28,14 +32,15 @@ def carregar_dados():
         df_e = ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO)
         df_p = ler_aba("Pedidos", ["Data", "Cliente", "Resumo do Pedido"])
         df_c = ler_aba("Clientes", ["Nome", "Loja", "Telefone", "Cidade"])
-        return conn, df_e, df_p, df_c
+        df_a = ler_aba("Aquisicoes", ["Data", "Resumo da Carga"]) # Nova aba de histórico
+        return conn, df_e, df_p, df_c, df_a
     except Exception as e:
         st.error(f"Erro ao conectar: {e}")
-        return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-conn, df_estoque, df_pedidos, df_clientes = carregar_dados()
+conn, df_estoque, df_pedidos, df_clientes, df_aquisicoes = carregar_dados()
 
-# --- BARRA LATERAL (AVISOS DE ESTOQUE) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚠️ Alertas de Estoque")
     if df_estoque.empty:
@@ -58,7 +63,6 @@ with st.sidebar:
             st.markdown("### ⚠️ Atenção (< 5)")
             for a in avisos_atencao: st.markdown(a)
 
-# --- FUNÇÃO DE ATUALIZAÇÃO ---
 def atualizar_planilha(aba, dataframe):
     df_limpo = dataframe.astype(str)
     df_limpo = df_limpo.loc[:, ~df_limpo.columns.str.contains('^Unnamed')]
@@ -71,13 +75,13 @@ def atualizar_planilha(aba, dataframe):
 # --- INTERFACE PRINCIPAL ---
 st.title("🩴 Xinelo de Dedo")
 
-tab1, tab_cad, tab2, tab3, tab4 = st.tabs(["📊 Estoque & Aquisição", "✨ Cadastrar Modelo", "🛒 Nova Venda", "👥 Clientes", "📜 Histórico"])
+tab1, tab_cad, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Estoque & Aquisição", "✨ Cadastrar Modelo", "🛒 Nova Venda", "👥 Clientes", "📜 Histórico Vendas", "📦 Histórico Aquisições"
+])
 
 # --- ABA 1: ESTOQUE E AQUISIÇÃO ---
 with tab1:
-    if 'carrinho_entrada' not in st.session_state:
-        st.session_state.carrinho_entrada = []
-
+    if 'carrinho_entrada' not in st.session_state: st.session_state.carrinho_entrada = []
     col_aq, col_list = st.columns([1.2, 2])
     
     with col_aq:
@@ -89,63 +93,53 @@ with tab1:
             qtd_aq = st.number_input("Quantidade", min_value=1, step=1, key="aq_qtd")
             
             if st.button("➕ Adicionar à Carga"):
-                st.session_state.carrinho_entrada.append({
-                    "Modelo": mod_aq, "Tamanho": tam_aq, "Qtd": qtd_aq
-                })
+                st.session_state.carrinho_entrada.append({"Modelo": mod_aq, "Tamanho": tam_aq, "Qtd": qtd_aq})
                 st.toast(f"{mod_aq} adicionado!")
 
             if st.session_state.carrinho_entrada:
                 st.write("---")
-                st.write("📋 **Itens para Entrada:**")
-                df_temp_ent = pd.DataFrame(st.session_state.carrinho_entrada)
-                st.table(df_temp_ent)
+                st.table(pd.DataFrame(st.session_state.carrinho_entrada))
                 
                 col_btn1, col_btn2 = st.columns(2)
                 if col_btn1.button("🗑️ Limpar"):
-                    st.session_state.carrinho_entrada = []
-                    st.rerun()
+                    st.session_state.carrinho_entrada = []; st.rerun()
                 
                 if col_btn2.button("✅ Confirmar Carga", type="primary"):
+                    resumo_entrada = []
                     for item in st.session_state.carrinho_entrada:
                         idx = df_estoque.index[df_estoque['Modelo'] == item['Modelo']][0]
-                        qtd_atual = int(df_estoque.at[idx, item['Tamanho']])
-                        df_estoque.at[idx, item['Tamanho']] = qtd_atual + item['Qtd']
+                        df_estoque.at[idx, item['Tamanho']] = int(df_estoque.at[idx, item['Tamanho']]) + item['Qtd']
+                        resumo_entrada.append(f"{item['Modelo']}({item['Tamanho']}x{item['Qtd']})")
+                    
+                    # Registrar Histórico de Aquisição
+                    nova_aq = pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(resumo_entrada)}])
+                    df_aquisicoes = pd.concat([df_aquisicoes, nova_aq], ignore_index=True)
                     
                     atualizar_planilha("Estoque", df_estoque)
+                    atualizar_planilha("Aquisicoes", df_aquisicoes)
                     st.session_state.carrinho_entrada = []
-                    st.success("Estoque atualizado com sucesso!")
+                    st.success("Estoque e Histórico atualizados!")
                     st.rerun()
-        else:
-            st.info("Cadastre modelos primeiro.")
+        else: st.info("Cadastre modelos primeiro.")
 
     with col_list:
         st.subheader("📋 Inventário Atual")
         st.dataframe(df_estoque, hide_index=True, use_container_width=True)
 
-# --- ABA 2: CADASTRAR MODELO (ADMIN) ---
+# --- ABA 2: CADASTRAR MODELO ---
 with tab_cad:
     st.subheader("✨ Cadastro de Novos Produtos")
     with st.form("form_novo_modelo", clear_on_submit=True):
         nome_mod = st.text_input("Nome/Cor do Novo Modelo")
-        st.write("Estoque Inicial:")
         cols_t = st.columns(5)
         inputs_n = {t: cols_t[i % 5].number_input(f"T {t}", min_value=0, step=1, key=f"n_{t}") for i, t in enumerate(TAMANHOS_PADRAO)}
-            
         if st.form_submit_button("Finalizar Cadastro"):
             if nome_mod:
                 if nome_mod in df_estoque['Modelo'].values: st.error("Modelo já existe!")
                 else:
-                    ni = {"Modelo": nome_mod}
-                    ni.update(inputs_n)
+                    ni = {"Modelo": nome_mod}; ni.update(inputs_n)
                     df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
-                    atualizar_planilha("Estoque", df_estoque)
-                    st.rerun()
-
-    if st.toggle("🗑️ Área de Exclusão"):
-        mod_del = st.selectbox("Deletar modelo", df_estoque['Modelo'].tolist())
-        if st.button("Remover Permanentemente"):
-            df_estoque = df_estoque[df_estoque['Modelo'] != mod_del]
-            atualizar_planilha("Estoque", df_estoque); st.rerun()
+                    atualizar_planilha("Estoque", df_estoque); st.rerun()
 
 # --- ABA 3: VENDAS ---
 with tab2:
@@ -172,7 +166,8 @@ with tab2:
                         idx = df_estoque.index[df_estoque['Modelo'] == it['Modelo']][0]
                         df_estoque.at[idx, it['Tamanho']] = int(df_estoque.at[idx, it['Tamanho']]) - it['Qtd']
                         res.append(f"{it['Modelo']}({it['Tamanho']}x{it['Qtd']})")
-                    np = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Cliente": v_cli, "Resumo do Pedido": " | ".join(res)}])
+                    
+                    np = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo do Pedido": " | ".join(res)}])
                     df_pedidos = pd.concat([df_pedidos, np], ignore_index=True)
                     atualizar_planilha("Estoque", df_estoque); atualizar_planilha("Pedidos", df_pedidos)
                     st.session_state.carrinho = []; st.rerun()
@@ -188,6 +183,12 @@ with tab3:
                 atualizar_planilha("Clientes", df_clientes); st.rerun()
     st.dataframe(df_clientes, use_container_width=True, hide_index=True)
 
-# --- ABA 5: HISTÓRICO ---
+# --- ABA 5: HISTÓRICO VENDAS ---
 with tab4:
+    st.subheader("📜 Vendas")
     st.dataframe(df_pedidos.iloc[::-1], use_container_width=True, hide_index=True)
+
+# --- ABA 6: HISTÓRICO AQUISIÇÕES ---
+with tab5:
+    st.subheader("📦 Entradas de Mercadoria")
+    st.dataframe(df_aquisicoes.iloc[::-1], use_container_width=True, hide_index=True)

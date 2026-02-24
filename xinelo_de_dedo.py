@@ -23,38 +23,31 @@ def limpar_valor(valor):
     except: return 0.0
 
 def gerar_recibo(dados_venda):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Cabeçalho
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(190, 10, "RECIBO DE VENDA - XINELO DE DEDO", ln=True, align="C")
-    pdf.ln(5)
-    
-    # Informações Gerais
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(190, 8, f"Data/Hora: {dados_venda['Data']}", ln=True)
-    pdf.cell(190, 8, f"Cliente: {dados_venda['Cliente']}", ln=True)
-    pdf.cell(190, 8, f"Status: {dados_venda['Status Pagto']}", ln=True)
-    pdf.ln(5)
-    
-    # Itens
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(190, 8, "Itens do Pedido:", ln=True)
-    pdf.set_font("Arial", "", 11)
-    resumo_limpo = dados_venda['Resumo'].replace(" | ", "\n")
-    pdf.multi_cell(190, 8, resumo_limpo)
-    
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(190, 10, f"VALOR TOTAL: R$ {limpar_valor(dados_venda['Valor Total']):.2f}", ln=True, align="R")
-    
-    # Rodapé
-    pdf.set_font("Arial", "I", 8)
-    pdf.ln(10)
-    pdf.cell(190, 5, "Obrigado pela preferência!", ln=True, align="C")
-    
-    return pdf.output(dest='S').encode('latin-1')
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(190, 10, "RECIBO DE VENDA - XINELO DE DEDO", ln=True, align="C")
+        pdf.ln(5)
+        pdf.set_font("Arial", "", 12)
+        pdf.cell(190, 8, f"Data/Hora: {dados_venda['Data']}", ln=True)
+        pdf.cell(190, 8, f"Cliente: {dados_venda['Cliente']}", ln=True)
+        pdf.cell(190, 8, f"Status: {dados_venda['Status Pagto']}", ln=True)
+        pdf.ln(5)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(190, 8, "Itens do Pedido:", ln=True)
+        pdf.set_font("Arial", "", 11)
+        resumo_limpo = str(dados_venda['Resumo']).replace(" | ", "\n")
+        pdf.multi_cell(190, 8, resumo_limpo)
+        pdf.ln(5)
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(190, 10, f"VALOR TOTAL: R$ {limpar_valor(dados_venda['Valor Total']):.2f}", ln=True, align="R")
+        pdf.set_font("Arial", "I", 8)
+        pdf.ln(10)
+        pdf.cell(190, 5, "Obrigado pela preferência!", ln=True, align="C")
+        return pdf.output(dest='S').encode('latin-1')
+    except Exception as e:
+        return str(e).encode('latin-1')
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=0)
@@ -88,15 +81,6 @@ def atualizar_planilha(aba, dataframe):
     conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
     st.cache_data.clear()
 
-# --- ESTILIZAÇÃO ---
-def colorir_estoque(val):
-    try:
-        v = int(float(val))
-        if v == 0: return 'background-color: #ff4b4b; color: white'
-        if v <= 3: return 'background-color: #ffeb3b; color: black'
-        return ''
-    except: return ''
-
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.header("💳 Gestão Financeira")
@@ -123,12 +107,10 @@ with st.sidebar:
             for cli, valor in resumo_divida.items():
                 st.warning(f"**{cli}**: R$ {valor:.2f}")
         else: st.info("Não há vendas pendentes.")
-    else: st.info("Sem histórico de vendas.")
 
     st.divider()
     st.header("⚠️ Alertas de Estoque")
-    if df_estoque.empty: st.info("Nenhum modelo cadastrado.")
-    else:
+    if not df_estoque.empty:
         alerta_vazio = True
         for _, row in df_estoque.iterrows():
             criticos = [f"{t}({int(float(row[t])) if row[t] != '' else 0}un)" for t in TAMANHOS_PADRAO if (int(float(row[t])) if row[t] != '' else 0) <= 3]
@@ -137,10 +119,9 @@ with st.sidebar:
                 alerta_vazio = False
         if alerta_vazio: st.success("✅ Estoque abastecido")
 
-# --- INTERFACE PRINCIPAL ---
-st.title("🩴 Gestão Xinelo de Dedo v3.5")
-tabs = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"])
-tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = tabs
+# --- INTERFACE ---
+st.title("🩴 Gestão Xinelo de Dedo v3.6")
+tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"])
 
 # --- TAB 1: ESTOQUE ---
 with tab1:
@@ -151,10 +132,10 @@ with tab1:
         modelos_dis = df_estoque['Modelo'].unique() if not df_estoque.empty else []
         if len(modelos_dis) == 0: st.warning("Cadastre um modelo primeiro!")
         else:
-            m_ent = st.selectbox("Modelo", modelos_dis, key="sel_mod_estoque")
-            t_ent = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_estoque")
-            q_ent = st.number_input("Quantidade", min_value=1, key="num_qtd_estoque")
-            v_ent = st.number_input("Custo Unitário R$", min_value=0.0, key="num_val_estoque")
+            m_ent = st.selectbox("Modelo", modelos_dis, key="ent_mod")
+            t_ent = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="ent_tam")
+            q_ent = st.number_input("Quantidade", min_value=1, key="ent_qtd")
+            v_ent = st.number_input("Custo Unitário R$", min_value=0.0, key="ent_val")
             if st.button("➕ Adicionar à Entrada"):
                 st.session_state.carrinho_ent.append({"Modelo": m_ent, "Tam": t_ent, "Qtd": q_ent, "Unit": v_ent, "Sub": q_ent*v_ent})
                 st.rerun()
@@ -163,7 +144,7 @@ with tab1:
             cl.write(f"• {it['Modelo']} {it['Tam']} (x{it['Qtd']})")
             if cr.button("🗑️", key=f"del_e_{i}"): st.session_state.carrinho_ent.pop(i); st.rerun()
         if st.session_state.carrinho_ent:
-            if st.button("✅ Confirmar Entrada", type="primary", key="btn_conf_estoque"):
+            if st.button("✅ Confirmar Entrada", type="primary"):
                 df_e_atu = df_estoque.copy()
                 hist_novos, res_txt, total_geral = [], [], 0
                 for it in st.session_state.carrinho_ent:
@@ -178,13 +159,12 @@ with tab1:
                 st.session_state.carrinho_ent = []; st.rerun()
     with c2:
         st.subheader("📋 Inventário")
-        if df_estoque.empty: st.info("Estoque vazio.")
-        else:
+        if not df_estoque.empty:
             for idx, r in df_estoque.iterrows():
                 cd, ct = st.columns([0.1, 0.9])
                 if cd.button("🗑️", key=f"d_inv_{idx}"): atualizar_planilha("Estoque", df_estoque.drop(idx)); st.rerun()
                 ct.write(f"**{r['Modelo']}**")
-            st.dataframe(df_estoque.style.applymap(colorir_estoque, subset=TAMANHOS_PADRAO), hide_index=True)
+            st.dataframe(df_estoque, hide_index=True)
 
 # --- TAB NOVO MODELO ---
 with tab_cad:
@@ -204,29 +184,28 @@ with tab2:
     c1, c2 = st.columns([1, 1])
     with c1:
         st.subheader("🛒 Nova Venda")
-        if df_estoque.empty: st.warning("Sem estoque.")
-        else:
-            v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Cliente Avulso"], key="sel_cli_venda")
-            v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="sel_mod_venda")
-            v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_venda")
+        if not df_estoque.empty:
+            v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Cliente Avulso"], key="v_cli")
+            v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="v_mod")
+            v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="v_tam")
             est_disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam].values[0]))
             st.write(f"Disponível: {est_disp}")
-            v_pre = st.number_input("Preço Venda R$", min_value=0.0, key="num_val_venda")
-            v_qtd = st.number_input("Qtd", min_value=1, max_value=max(1, est_disp), key="num_qtd_venda")
-            if st.button("➕ Adicionar Item", key="btn_add_venda"):
+            v_pre = st.number_input("Preço Venda R$", min_value=0.0, key="v_pre")
+            v_qtd = st.number_input("Qtd", min_value=1, max_value=max(1, est_disp), key="v_qtd")
+            if st.button("➕ Adicionar Item"):
                 if est_disp >= v_qtd:
                     st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Sub": v_qtd*v_pre})
                     st.rerun()
     with c2:
-        st.subheader("📄 Resumo da Venda")
+        st.subheader("📄 Resumo")
         for i, it in enumerate(st.session_state.carrinho_v):
             st.write(f"{it['Mod']} {it['Tam']} x{it['Qtd']} - R$ {it['Sub']:.2f}")
         if st.session_state.carrinho_v:
             total_v = sum(x['Sub'] for x in st.session_state.carrinho_v)
             st.write(f"### Total: R$ {total_v:.2f}")
-            status_v = st.radio("Status do Pagamento", ["Pago", "Pendente"], horizontal=True, key="rad_status_venda")
-            forma_v = st.selectbox("Forma de Pagamento", ["Pix", "Dinheiro", "Cartão", "N/A"], key="sel_forma_venda")
-            if st.button("Finalizar Venda", type="primary", key="btn_conf_venda"):
+            status_v = st.radio("Status Pagto", ["Pago", "Pendente"], horizontal=True, key="v_stat")
+            forma_v = st.selectbox("Forma", ["Pix", "Dinheiro", "Cartão", "N/A"], key="v_for")
+            if st.button("Finalizar Venda", type="primary"):
                 df_e_v = df_estoque.copy()
                 for x in st.session_state.carrinho_v:
                     ix = df_e_v.index[df_e_v['Modelo'] == x['Mod']][0]
@@ -263,7 +242,7 @@ with tab3:
 # --- TAB EXTRATO ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
-    f_30 = st.checkbox("Últimos 30 dias", value=True, key="chk_30_extrato")
+    f_30 = st.checkbox("Últimos 30 dias", value=True, key="f30")
     p = df_pedidos.assign(Tipo="Venda", Origem="Pedidos")
     a = df_aquisicoes.assign(Tipo="Compra", Origem="Aquisicoes")
     i = df_insumos.assign(Tipo="Insumo", Origem="Insumos").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
@@ -286,13 +265,11 @@ with tab4:
                     df_p_atu.loc[mask, 'Status Pagto'] = "Pago"
                     atualizar_planilha("Pedidos", df_p_atu); st.rerun()
             if r['Origem'] == "Pedidos":
-                pdf_bytes = gerar_recibo(r)
-                c_pdf.download_button(label="📄 PDF", data=pdf_bytes, file_name=f"recibo_{idx}.pdf", mime="application/pdf", key=f"pdf_down_{idx}")
+                # O PDF só é gerado quando você clica no botão de download
+                c_pdf.download_button(label="📄 PDF", data=gerar_recibo(r), file_name=f"recibo_{idx}.pdf", mime="application/pdf", key=f"p_{idx}")
             status_p = r['Status Pagto'] if r['Origem'] == "Pedidos" else "Pago"
-            prefixo = "🔴 [PENDENTE]" if (r['Origem'] == "Pedidos" and status_p == "Pendente") else "🟢" if r['Tipo'] == "Venda" else "⚪"
-            cliente_str = f" | {r['Cliente']}" if r['Tipo'] == "Venda" else ""
-            c_t.write(f"{prefixo} **{r['Data']}** | {r['Tipo']}{cliente_str} | {r['Resumo']} | **R$ {limpar_valor(r['Valor Total']):.2f}**")
-    else: st.info("Nenhuma movimentação.")
+            prefixo = "🔴" if (r['Origem'] == "Pedidos" and status_p == "Pendente") else "🟢" if r['Tipo'] == "Venda" else "⚪"
+            c_t.write(f"{prefixo} **{r['Data']}** | {r['Tipo']} | {r['Cliente'] if r['Tipo']=='Venda' else ''} | {r['Resumo']} | **R$ {limpar_valor(r['Valor Total']):.2f}**")
 
 # --- TAB LEMBRETES ---
 with tab5:
@@ -308,7 +285,5 @@ with tab5:
 with tab6:
     if not df_hist_precos.empty:
         df_hist_precos['DT'] = pd.to_datetime(df_hist_precos['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        sel = st.selectbox("Evolução de Preço:", df_hist_precos['Modelo'].unique(), key="sel_hist_preco")
+        sel = st.selectbox("Evolução de Preço:", df_hist_precos['Modelo'].unique(), key="h_mod")
         st.line_chart(df_hist_precos[df_hist_precos['Modelo'] == sel].sort_values('DT'), x='DT', y='Preco_Unit')
-        st.dataframe(df_hist_precos.sort_values('DT', ascending=False), hide_index=True)
-    else: st.info("Sem dados de histórico.")

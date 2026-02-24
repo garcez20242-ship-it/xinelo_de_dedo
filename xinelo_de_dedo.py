@@ -91,7 +91,7 @@ with st.sidebar:
         st.success("✅ Estoque em dia!")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🩴 Xinelo de Dedo - Gestão Pro")
+st.title("🩴 Xinelo de Dedo - Gestão")
 
 tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
 
@@ -269,3 +269,4 @@ with tab5:
                 atualizar_planilha("Lembretes", df_lembretes.drop(idx)); st.rerun()
             c_info.write(f"**{row['Nome']}** - Vence em: {row['Data']} - **R$ {limpar_valor(row['Valor']):.2f}**")
     else: st.info("Nenhum lembrete cadastrado.")
+

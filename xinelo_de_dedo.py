@@ -60,19 +60,18 @@ def atualizar_planilha(aba, dataframe):
 # --- INTERFACE ---
 tab1, tab_cad, tab2, tab_ins, tab3, tab4 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato & PDF"])
 
-# --- TAB 1: ESTOQUE (Entradas e Lixeiras Mini) ---
+# --- TAB 1: ESTOQUE ---
 with tab1:
     if 'carrinho_ent' not in st.session_state: st.session_state.carrinho_ent = []
     c1, c2 = st.columns([1.3, 2])
     with c1:
         st.subheader("📦 Entrada de Mercadoria")
-        # ADICIONADO KEY PARA EVITAR DUPLICIDADE
-        m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["-"], key="sel_mod_estoque")
-        t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_estoque")
+        m_aq = st.selectbox("Modelo", df_estoque['Modelo'].unique() if not df_estoque.empty else ["-"], key="sel_mod_est")
+        t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_est")
         col_q, col_v = st.columns(2)
-        q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="num_qtd_estoque")
-        v_uni = col_v.number_input("R$ Unit. Compra", min_value=0.0, format="%.2f", key="num_val_estoque")
-        if st.button("➕ Add Compra", key="btn_add_estoque"):
+        q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="num_q_est")
+        v_uni = col_v.number_input("R$ Unit. Compra", min_value=0.0, format="%.2f", key="num_v_est")
+        if st.button("➕ Add Compra", key="btn_add_est"):
             st.session_state.carrinho_ent.append({"Modelo": m_aq, "Tamanho": t_aq, "Qtd": q_aq, "Unit": v_uni, "Sub": q_aq*v_uni})
             st.rerun()
         for i, item in enumerate(st.session_state.carrinho_ent):
@@ -81,7 +80,7 @@ with tab1:
             cl_txt.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - **R$ {item['Sub']:.2f}**")
         if st.session_state.carrinho_ent:
             total_c = sum(it['Sub'] for it in st.session_state.carrinho_ent)
-            if st.button(f"✅ Confirmar R$ {total_c:.2f}", type="primary", key="btn_conf_estoque"):
+            if st.button(f"✅ Confirmar R$ {total_c:.2f}", type="primary", key="btn_conf_est"):
                 df_e_new = df_estoque.copy()
                 res_f = []
                 for it in st.session_state.carrinho_ent:
@@ -100,53 +99,45 @@ with tab1:
             cl_txt.write(f"**{row['Modelo']}**")
         st.dataframe(df_estoque, hide_index=True)
 
-# --- TAB CADASTRO MODELOS ---
+# --- TAB CADASTRO ---
 with tab_cad:
-    with st.form("f_cad_modelo"):
-        n_m = st.text_input("Novo Nome de Modelo")
+    with st.form("f_cad_mod"):
+        n_m = st.text_input("Novo Modelo")
         cols = st.columns(5)
         ipts = {t: cols[i%5].number_input(f"T {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
-        if st.form_submit_button("Cadastrar Modelo"):
+        if st.form_submit_button("Cadastrar"):
             if n_m:
                 ni = {"Modelo": n_m}; ni.update(ipts)
                 atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.success("Cadastrado!"); st.rerun()
 
-# --- TAB 2: VENDAS (Trava de Estoque + Pagamento) ---
+# --- TAB 2: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
     with c1:
         st.subheader("🛒 Nova Venda")
-        # ADICIONADO KEY PARA EVITAR DUPLICIDADE
-        v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique(), key="sel_cli_venda") if not df_clientes.empty else st.text_input("Cliente", key="ipt_cli_venda")
-        v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="sel_mod_venda")
-        v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_tam_venda")
-        
-        disp = 0
-        if not df_estoque.empty and v_mod in df_estoque['Modelo'].values:
-            disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam].values[0]))
-            
-        st.metric("Estoque Disponível", disp)
-        v_qtd = st.number_input("Quantidade", min_value=0, max_value=disp, step=1, key="num_qtd_venda")
-        v_pre = st.number_input("Preço Unitário R$", min_value=0.0, format="%.2f", key="num_val_venda")
-        
-        if st.button("➕ Adicionar ao Carrinho", key="btn_add_venda"):
+        v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique(), key="s_cli_v") if not df_clientes.empty else st.text_input("Cliente", key="i_cli_v")
+        v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="s_mod_v")
+        v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="s_tam_v")
+        disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam].values[0])) if not df_estoque.empty else 0
+        st.metric("Disponível", disp)
+        v_qtd = st.number_input("Qtd", min_value=0, max_value=disp, step=1, key="n_qtd_v")
+        v_pre = st.number_input("R$ Unit. Venda", min_value=0.0, format="%.2f", key="n_pre_v")
+        if st.button("➕ Add Item", key="b_add_v"):
             if v_qtd > 0:
                 st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Preco": v_pre, "Sub": v_qtd*v_pre})
                 st.rerun()
     with c2:
-        st.subheader("📄 Itens do Pedido")
         for idx, it in enumerate(st.session_state.carrinho_v):
             cl_d, cl_t = st.columns([0.1, 0.9])
-            if cl_d.button("🗑️", key=f"dv_item_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
+            if cl_d.button("🗑️", key=f"dv_v_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
             cl_t.write(f"{it['Mod']} ({it['Tam']}) x{it['Qtd']} - **R$ {it['Sub']:.2f}**")
-            
         if st.session_state.carrinho_v:
             tot_v = sum(i['Sub'] for i in st.session_state.carrinho_v)
-            st.markdown(f"--- \n ### Total do Pedido: R$ {tot_v:.2f}")
-            st_pg = st.selectbox("Status de Pagamento", ["Pago", "Pendente"], key="sel_status_pg")
-            fm_pg = st.selectbox("Forma de Recebimento", ["Pix", "Dinheiro", "Cartão", "Boleto"], key="sel_forma_pg")
-            if st.button("🚀 Finalizar Pedido", type="primary", key="btn_finalizar_venda"):
+            st.markdown(f"### Total: R$ {tot_v:.2f}")
+            st_pg = st.selectbox("Status", ["Pago", "Pendente"], key="s_pg_v")
+            fm_pg = st.selectbox("Forma", ["Pix", "Dinheiro", "Cartão", "Boleto"], key="f_pg_v")
+            if st.button("🚀 Finalizar Pedido", type="primary", key="b_fin_v"):
                 df_ev = df_estoque.copy()
                 res_v = " | ".join([f"{it['Mod']}({it['Tam']}x{it['Qtd']})" for it in st.session_state.carrinho_v])
                 for it in st.session_state.carrinho_v:
@@ -154,88 +145,87 @@ with tab2:
                     df_ev.at[ix, it['Tam']] = int(float(df_ev.at[ix, it['Tam']])) - it['Qtd']
                 atualizar_planilha("Estoque", df_ev)
                 atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": res_v, "Valor Total": tot_v, "Status Pagto": st_pg, "Forma": fm_pg}])], ignore_index=True))
-                st.session_state.carrinho_v = []; st.success("Venda finalizada!"); st.rerun()
+                st.session_state.carrinho_v = []; st.success("Venda realizada!"); st.rerun()
 
-# --- TAB 3: INSUMOS (Com Lixeira Mini) ---
+# --- TAB INSUMOS ---
 with tab_ins:
-    st.subheader("🛠️ Gestão de Insumos")
-    with st.form("f_insumo"):
-        desc_i = st.text_input("O que comprou? (Sacolas, fios, etc)")
-        val_i = st.number_input("Valor Pago R$", min_value=0.0, format="%.2f")
-        if st.form_submit_button("Registrar Insumo"):
+    st.subheader("🛠️ Gastos com Insumos")
+    with st.form("f_ins_novo"):
+        desc_i = st.text_input("Descrição")
+        val_i = st.number_input("Valor R$", min_value=0.0, format="%.2f")
+        if st.form_submit_button("Salvar Insumo"):
             atualizar_planilha("Insumos", pd.concat([df_insumos, pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc_i, "Valor": val_i}])], ignore_index=True))
-            st.success("Gasto registrado!"); st.rerun()
-    
-    st.markdown("---")
+            st.rerun()
     for idx, row in df_insumos.iterrows():
         cl_del, cl_txt = st.columns([0.08, 0.92])
-        if cl_del.button("🗑️", key=f"ex_ins_lista_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
+        if cl_del.button("🗑️", key=f"ex_ins_list_{idx}"): atualizar_planilha("Insumos", df_insumos.drop(idx)); st.rerun()
         cl_txt.write(f"{row['Data']} - {row['Descricao']} - **R$ {float(row['Valor']):.2f}**")
 
-# --- TAB 4: CLIENTES (Loja/Cidade Separados) ---
-with tab3:
-    st.subheader("👥 Cadastro de Clientes")
-    with st.form("f_cliente_novo"):
-        c1, c2 = st.columns(2)
-        n_c = c1.text_input("Nome Completo")
-        l_c = c2.text_input("Nome da Loja")
-        ci_c = c1.text_input("Cidade")
-        t_c = c2.text_input("Telefone/WhatsApp")
-        if st.form_submit_button("Cadastrar Cliente"):
-            if n_c:
-                atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": ci_c, "Telefone": t_c}])], ignore_index=True))
-                st.success("Cliente cadastrado!"); st.rerun()
-    st.dataframe(df_clientes, hide_index=True, use_container_width=True)
-
-# --- TAB 5: EXTRATO & PDF DETALHADO ---
+# --- TAB 5: EXTRATO (COM FUNÇÃO DE APAGAR REGISTRO) ---
 with tab4:
-    st.subheader("🧾 Extrato Financeiro e PDF")
-    u = pd.concat([
-        df_pedidos.assign(Tipo="Venda"), 
-        df_aquisicoes.assign(Tipo="Compra"), 
-        df_insumos.assign(Tipo="Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
-    ], ignore_index=True)
+    st.subheader("🧾 Histórico de Movimentações")
+    
+    # Prepara os dados com IDs de origem para saber o que apagar
+    p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
+    a_ext = df_aquisicoes.assign(Origem="Aquisicoes", Tipo="🟢 Compra")
+    i_ext = df_insumos.assign(Origem="Insumos", Tipo="🟠 Insumo").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
+    
+    u = pd.concat([p_ext, a_ext, i_ext], ignore_index=True)
     
     if not u.empty:
         u['Data_DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        mes_atual = datetime.now().month
-        ano_atual = datetime.now().year
         
-        # Filtro de visualização
-        ver_tudo = st.checkbox("Ver histórico completo (fora do mês atual)")
+        c_filt1, c_filt2 = st.columns([1, 3])
+        ver_tudo = c_filt1.checkbox("Ver histórico completo")
         if not ver_tudo:
-            f_df = u[(u['Data_DT'].dt.month == mes_atual) & (u['Data_DT'].dt.year == ano_atual)].sort_values('Data_DT', ascending=False)
-        else:
-            f_df = u.sort_values('Data_DT', ascending=False)
+            u = u[(u['Data_DT'].dt.month == datetime.now().month) & (u['Data_DT'].dt.year == datetime.now().year)]
         
-        st.dataframe(f_df[['Data', 'Tipo', 'Resumo', 'Valor Total', 'Status Pagto', 'Forma']], use_container_width=True, hide_index=True)
-        
-        vendas = pd.to_numeric(f_df[f_df['Tipo'] == "Venda"]['Valor Total']).sum()
-        gastos = pd.to_numeric(f_df[f_df['Tipo'].isin(["Compra", "Insumo"])]['Valor Total']).sum()
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Vendas (Receita)", f"R$ {vendas:.2f}")
-        c2.metric("Saídas (Custos)", f"R$ {gastos:.2f}")
-        c3.metric("Lucro Líquido", f"R$ {vendas - gastos:.2f}")
+        # Ordenar por data mais recente
+        u = u.sort_values('Data_DT', ascending=False)
 
-        if st.button("📄 Gerar PDF Detalhado"):
+        # Listagem com Lixeira Mini para apagar
+        for idx, row in u.iterrows():
+            col_del, col_info = st.columns([0.08, 0.92])
+            
+            # Botão de apagar no extrato
+            if col_del.button("🗑️", key=f"del_ext_{idx}"):
+                # Lógica para saber de qual aba apagar
+                if row['Origem'] == "Pedidos":
+                    # Removemos usando a Data e o Cliente como referência única
+                    df_novo = df_pedidos[~((df_pedidos['Data'] == row['Data']) & (df_pedidos['Cliente'] == row['Cliente']))]
+                    atualizar_planilha("Pedidos", df_novo)
+                elif row['Origem'] == "Aquisicoes":
+                    df_novo = df_aquisicoes[~((df_aquisicoes['Data'] == row['Data']) & (df_aquisicoes['Resumo'] == row['Resumo']))]
+                    atualizar_planilha("Aquisicoes", df_novo)
+                elif row['Origem'] == "Insumos":
+                    df_novo = df_insumos[~((df_insumos['Data'] == row['Data']) & (df_insumos['Descricao'] == row['Resumo']))]
+                    atualizar_planilha("Insumos", df_novo)
+                
+                st.success("Registro removido do histórico!")
+                st.rerun()
+            
+            # Informação da linha
+            txt_resumo = f"{row['Cliente']}: {row['Resumo']}" if row['Origem'] == "Pedidos" else row['Resumo']
+            col_info.write(f"**{row['Data']}** | {row['Tipo']} | {txt_resumo} | **R$ {float(row['Valor Total']):.2f}**")
+
+        # RESUMO FINANCEIRO
+        vendas = pd.to_numeric(u[u['Origem'] == "Pedidos"]['Valor Total']).sum()
+        gastos = pd.to_numeric(u[u['Origem'].isin(["Aquisicoes", "Insumos"])]['Valor Total']).sum()
+        
+        st.markdown("---")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Vendas (Mês)", f"R$ {vendas:.2f}")
+        c2.metric("Saídas (Mês)", f"R$ {gastos:.2f}")
+        c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
+
+        if st.button("📄 Gerar PDF Detalhado", key="btn_pdf_final"):
             pdf = PDF()
             pdf.add_page()
-            
-            pdf.chapter_title("RESUMO DO PERIODO")
-            pdf.cell(0, 8, f"Total Vendas: R$ {vendas:.2f}", ln=True)
-            pdf.cell(0, 8, f"Total Gastos: R$ {gastos:.2f}", ln=True)
-            pdf.cell(0, 8, f"Saldo Final: R$ {vendas-gastos:.2f}", ln=True)
-            pdf.ln(5)
-            
-            pdf.chapter_title("VENDAS DETALHADAS")
-            pdf.set_font('Arial', 'B', 8)
-            pdf.cell(35, 7, "Data", 1); pdf.cell(75, 7, "Cliente / Pedido", 1); pdf.cell(30, 7, "Valor", 1); pdf.cell(50, 7, "Pagto", 1, ln=True)
-            pdf.set_font('Arial', '', 7)
-            for _, r in f_df[f_df['Tipo'] == "Venda"].iterrows():
-                pdf.cell(35, 6, str(r['Data']), 1)
-                pdf.cell(75, 6, f"{str(r['Cliente'])[:15]} - {str(r['Resumo'])[:35]}", 1)
-                pdf.cell(30, 6, f"R$ {float(r['Valor Total']):.2f}", 1)
-                pdf.cell(50, 6, f"{r['Status Pagto']} ({r['Forma']})", 1, ln=True)
-            
-            st.download_button("📥 Clique para Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name=f"relatorio_financeiro.pdf")
+            pdf.chapter_title("RELATORIO DE MOVIMENTACAO")
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(0, 10, f"Total Vendas: R$ {vendas:.2f}", ln=True)
+            pdf.cell(0, 10, f"Total Gastos: R$ {gastos:.2f}", ln=True)
+            pdf.cell(0, 10, f"Saldo: R$ {vendas-gastos:.2f}", ln=True)
+            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
+    else:
+        st.info("Nenhum registro encontrado.")

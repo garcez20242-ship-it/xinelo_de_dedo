@@ -85,7 +85,9 @@ with st.sidebar:
     if not df_pedidos.empty:
         df_vendas_pendentes = df_pedidos[df_pedidos['Status Pagto'] == "Pendente"]
         if not df_vendas_pendentes.empty:
-            resumo_divida = df_vendas_pendentes.groupby('Cliente')['Valor Total'].apply(lambda x: sum(limpar_valor(i) for i in x))
+            # Garantir que Valor Total seja numérico para o agrupamento
+            df_vendas_pendentes['Valor_Num'] = df_vendas_pendentes['Valor Total'].apply(limpar_valor)
+            resumo_divida = df_vendas_pendentes.groupby('Cliente')['Valor_Num'].sum()
             for cli, valor in resumo_divida.items():
                 st.warning(f"**{cli}**: R$ {valor:.2f}")
         else: st.info("Não há vendas pendentes.")
@@ -105,13 +107,12 @@ with st.sidebar:
                 alerta_vazio = False
         if alerta_vazio: st.success("✅ Estoque abastecido")
 
-# --- INTERFACE ---
-st.title("🩴 Gestão Xinelo de Dedo v3.2")
-tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"
-])
+# --- INTERFACE PRINCIPAL ---
+st.title("🩴 Gestão Xinelo de Dedo v3.3")
+tabs = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"])
+tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = tabs
 
-# --- TAB 1: ESTOQUE (ENTRADA MÚLTIPLA) ---
+# --- TAB 1: ESTOQUE ---
 with tab1:
     if 'carrinho_ent' not in st.session_state: st.session_state.carrinho_ent = []
     c1, c2 = st.columns([1, 1.5])
@@ -168,7 +169,7 @@ with tab_cad:
                 d_novo = {"Modelo": nm}; d_novo.update(vals)
                 atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([d_novo])], ignore_index=True)); st.rerun()
 
-# --- TAB 2: VENDAS (OPÇÃO B: PAGTO PENDENTE) ---
+# --- TAB 2: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
@@ -231,35 +232,55 @@ with tab3:
     for idx, r in df_clientes.iterrows():
         if st.button(f"Remover {r['Nome']}", key=f"d_cli_{idx}"): atualizar_planilha("Clientes", df_clientes.drop(idx)); st.rerun()
 
-# --- TAB EXTRATO (COM BAIXA DE PAGAMENTO) ---
+# --- TAB EXTRATO ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
     f_30 = st.checkbox("Últimos 30 dias", value=True)
+    
+    # Preparação da união de dados para o extrato
     p = df_pedidos.assign(Tipo="Venda", Origem="Pedidos")
-    a = df_aquisicoes.assign(Tipo="Compra", Origem="Aquisicoes")
-    i = df_insumos.assign(Tipo="Insumo", Origem="Insumos").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
+    a = df_aquisicoes.assign(Tipo="Compra", Origem="Aquisicoes", Status_Pagto_Ext="Pago")
+    i = df_insumos.assign(Tipo="Insumo", Origem="Insumos", Status_Pagto_Ext="Pago").rename(columns={"Descricao": "Resumo", "Valor": "Valor Total"})
+    
     u = pd.concat([p, a, i], ignore_index=True)
+    
     if not u.empty:
         u['DT'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
-        if f_30: u = u[u['DT'] >= (datetime.now() - timedelta(days=30))]
+        if f_30:
+            u = u[u['DT'] >= (datetime.now() - timedelta(days=30))]
+        
         u = u.sort_values('DT', ascending=False)
+        
         for idx, r in u.iterrows():
+            # Colunas: Lixeira | Botão Receber (se for venda pendente) | Texto do Registro
             c_d, c_b, c_t = st.columns([0.05, 0.15, 0.8])
+            
+            # 1. Botão de Lixeira
             if c_d.button("🗑️", key=f"d_ext_{idx}"):
                 if r['Origem'] == "Pedidos": atualizar_planilha("Pedidos", df_pedidos[df_pedidos['Data'] != r['Data']])
                 elif r['Origem'] == "Aquisicoes": atualizar_planilha("Aquisicoes", df_aquisicoes[df_aquisicoes['Data'] != r['Data']])
                 elif r['Origem'] == "Insumos": atualizar_planilha("Insumos", df_insumos[df_insumos['Data'] != r['Data']])
                 st.rerun()
-            # Botão de Baixa de Pagamento
-            if r['Origem'] == "Pedidos" and r['Status Pagto'] == "Pendente":
+            
+            # 2. Lógica para Vendas Pendentes (Botão Receber)
+            status_p = r['Status Pagto'] if r['Origem'] == "Pedidos" else "Pago"
+            if r['Origem'] == "Pedidos" and status_p == "Pendente":
                 if c_b.button("✅ Receber", key=f"bx_{idx}"):
                     df_p_atu = df_pedidos.copy()
-                    idx_p = df_p_atu.index[(df_p_atu['Data'] == r['Data']) & (df_p_atu['Cliente'] == r['Cliente'])][0]
-                    df_p_atu.at[idx_p, 'Status Pagto'] = "Pago"
-                    atualizar_planilha("Pedidos", df_p_atu); st.rerun()
+                    # Localiza o registro exato na planilha original
+                    mask = (df_p_atu['Data'] == r['Data']) & (df_p_atu['Cliente'] == r['Cliente'])
+                    df_p_atu.loc[mask, 'Status Pagto'] = "Pago"
+                    atualizar_planilha("Pedidos", df_p_atu)
+                    st.rerun()
             
-            cor = "🔴" if r['Status Pagto'] == "Pendente" else "🟢" if r['Tipo'] == "Venda" else "⚪"
-            c_t.write(f"{cor} **{r['Data']}** | {r['Tipo']} | {r['Cliente'] if r['Tipo']=='Venda' else ''} | {r['Resumo']} | **R$ {limpar_valor(r['Valor Total']):.2f}**")
+            # 3. Formatação do Texto
+            prefixo = "🔴 [PENDENTE]" if (r['Origem'] == "Pedidos" and status_p == "Pendente") else "🟢" if r['Tipo'] == "Venda" else "⚪"
+            cliente_str = f" | {r['Cliente']}" if r['Tipo'] == "Venda" else ""
+            valor_formatado = limpar_valor(r['Valor Total'])
+            
+            c_t.write(f"{prefixo} **{r['Data']}** | {r['Tipo']}{cliente_str} | {r['Resumo']} | **R$ {valor_formatado:.2f}**")
+    else:
+        st.info("Nenhuma movimentação encontrada.")
 
 # --- TAB LEMBRETES ---
 with tab5:

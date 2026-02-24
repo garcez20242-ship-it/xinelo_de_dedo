@@ -73,7 +73,7 @@ tab1, tab_cad, tab2, tab3, tab4 = st.tabs([
     "📊 Estoque & Aquisição", "✨ Cadastro de Modelos", "🛒 Vendas", "👥 Clientes", "🧾 Extrato Unificado"
 ])
 
-# --- TAB 1: ENTRADA E INVENTÁRIO (COM EXCLUSÃO) ---
+# --- TAB 1: ENTRADA E INVENTÁRIO ---
 with tab1:
     if 'carrinho_ent' not in st.session_state: st.session_state.carrinho_ent = []
     c1, c2 = st.columns([1.3, 2])
@@ -94,11 +94,14 @@ with tab1:
                 })
             
             if st.session_state.carrinho_ent:
+                st.write("---")
                 for i, item in enumerate(st.session_state.carrinho_ent):
-                    cx, cd = st.columns([4, 1])
-                    cx.write(f"**{item['Modelo']}** ({item['Tamanho']}) x{item['Qtd']}")
+                    # Coluna do ícone bem pequena (0.1)
+                    cd, cx = st.columns([0.1, 0.9])
                     if cd.button("🗑️", key=f"del_ent_car_{i}"):
-                        st.session_state.carrinho_ent.pop(i); st.rerun()
+                        st.session_state.carrinho_ent.pop(i)
+                        st.rerun()
+                    cx.write(f"**{item['Modelo']}** ({item['Tamanho']}) x{item['Qtd']}")
                 
                 total_c = sum(i['Subtotal'] for i in st.session_state.carrinho_ent)
                 st.write(f"**Total: R$ {total_c:.2f}**")
@@ -115,18 +118,21 @@ with tab1:
                         "Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": f"{total_c:.2f}"
                     }])], ignore_index=True)
                     
-                    atualizar_planilha("Estoque", df_e_new); atualizar_planilha("Aquisicoes", nova_aq)
-                    st.session_state.carrinho_ent = []; st.rerun()
-        else: st.info("Cadastre modelos primeiro.")
+                    atualizar_planilha("Estoque", df_e_new)
+                    atualizar_planilha("Aquisicoes", nova_aq)
+                    st.session_state.carrinho_ent = []
+                    st.rerun()
 
     with c2:
-        st.subheader("📋 Inventário (Apagar Modelos)")
+        st.subheader("📋 Inventário")
         if not df_estoque.empty:
             for idx, row in df_estoque.iterrows():
-                col_del, col_txt = st.columns([0.15, 5])
+                # Reduzi a proporção da coluna da lixeira para 0.08
+                col_del, col_txt = st.columns([0.08, 0.92])
                 if col_del.button("🗑️", key=f"excluir_mod_{idx}"):
-                    df_estoque = df_estoque.drop(idx)
-                    atualizar_planilha("Estoque", df_estoque); st.rerun()
+                    df_novo_est = df_estoque.drop(idx)
+                    atualizar_planilha("Estoque", df_novo_est)
+                    st.rerun()
                 col_txt.write(f"**{row['Modelo']}**")
             st.write("---")
             st.dataframe(df_estoque, hide_index=True, use_container_width=True)
@@ -141,9 +147,10 @@ with tab_cad:
         if st.form_submit_button("Cadastrar Modelo"):
             if n_m and n_m not in df_estoque['Modelo'].values:
                 ni = {"Modelo": n_m}; ni.update(ipts)
-                atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.rerun()
+                atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True))
+                st.rerun()
 
-# --- TAB 3: VENDAS (COM TRAVA E REMOÇÃO) ---
+# --- TAB 3: VENDAS ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
@@ -164,10 +171,12 @@ with tab2:
     with c2:
         if st.session_state.carrinho_v:
             for idx, item in enumerate(st.session_state.carrinho_v):
-                ct, cd = st.columns([4, 1])
-                ct.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']}")
+                # Coluna do ícone pequena (0.1)
+                cd, ct = st.columns([0.1, 0.9])
                 if cd.button("🗑️", key=f"del_v_car_{idx}"):
-                    st.session_state.carrinho_v.pop(idx); st.rerun()
+                    st.session_state.carrinho_v.pop(idx)
+                    st.rerun()
+                ct.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']}")
             if st.button("🚀 Finalizar Venda", type="primary", key="fin_v"):
                 df_ev = df_estoque.copy()
                 res_v = []
@@ -176,10 +185,12 @@ with tab2:
                     df_ev.at[ix, it['Tamanho']] = int(float(df_ev.at[ix, it['Tamanho']])) - it['Qtd']
                     res_v.append(f"{it['Modelo']}({it['Tamanho']} x{it['Qtd']})")
                 n_p = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v)}])], ignore_index=True)
-                atualizar_planilha("Estoque", df_ev); atualizar_planilha("Pedidos", n_p)
-                st.session_state.carrinho_v = []; st.rerun()
+                atualizar_planilha("Estoque", df_ev)
+                atualizar_planilha("Pedidos", n_p)
+                st.session_state.carrinho_v = []
+                st.rerun()
 
-# --- TAB 4: CLIENTES (CADASTRO COMPLETO) ---
+# --- TAB 4: CLIENTES ---
 with tab3:
     st.subheader("👥 Cadastro de Clientes")
     with st.form("f_cli"):
@@ -190,7 +201,8 @@ with tab3:
         if st.form_submit_button("Salvar Cliente"):
             if n_c:
                 nova_lista_c = pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Telefone": t_c}])], ignore_index=True)
-                atualizar_planilha("Clientes", nova_lista_c); st.rerun()
+                atualizar_planilha("Clientes", nova_lista_c)
+                st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
 # --- TAB 5: EXTRATO ---

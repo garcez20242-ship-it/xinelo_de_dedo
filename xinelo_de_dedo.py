@@ -65,7 +65,8 @@ with st.sidebar:
     tem_pagamento = False
     if not df_lembretes.empty:
         df_l_temp = df_lembretes.copy()
-        df_l_temp['Data_DT'] = pd.to_datetime(df_l_temp['Data'], errors='coerce').dt.date
+        # Tenta ler formato BR ou ISO para comparação
+        df_l_temp['Data_DT'] = pd.to_datetime(df_l_temp['Data'], dayfirst=True, errors='coerce').dt.date
         pendentes = df_l_temp[df_l_temp['Data_DT'] <= hoje]
         for _, row in pendentes.iterrows():
             st.error(f"**{row['Nome']}**\nVencimento: {row['Data']}\nValor: R$ {limpar_valor(row['Valor']):.2f}")
@@ -91,7 +92,7 @@ with st.sidebar:
         st.success("✅ Estoque em dia!")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🩴 Xinelo de Dedo - Gestão")
+st.title("🩴 Xinelo de Dedo - Gestão Pro")
 
 tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5 = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes"])
 
@@ -210,7 +211,7 @@ with tab3:
             st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO ---
+# --- TAB 4: EXTRATO ---
 with tab4:
     st.subheader("🧾 Extrato Financeiro")
     p_ext = df_pedidos.assign(Origem="Pedidos", Tipo="🔴 Venda")
@@ -247,17 +248,32 @@ with tab4:
     c1.metric("Vendas", f"R$ {vendas:.2f}")
     c2.metric("Saídas", f"R$ {gastos:.2f}")
     c3.metric("Saldo", f"R$ {vendas - gastos:.2f}")
+    
+    # BOTAO PARA PDF DE EXTRATO (ADICIONADO)
+    if not u.empty:
+        if st.button("📄 Gerar PDF Detalhado"):
+            pdf = PDF()
+            pdf.add_page()
+            pdf.set_font('Arial', '', 12)
+            pdf.cell(0, 10, f"RELATORIO FINANCEIRO - Saldo: R$ {vendas-gastos:.2f}", ln=True)
+            pdf.ln(5)
+            for _, r in u.iterrows():
+                pdf.set_font('Arial', '', 10)
+                pdf.cell(0, 8, f"{r['Data']} | {r['Tipo']} | R$ {limpar_valor(r['Valor Total']):.2f}", ln=True)
+            st.download_button("📥 Baixar PDF", data=pdf.output(dest='S').encode('latin-1'), file_name="extrato.pdf")
 
-# --- TAB 6: LEMBRETES ---
+# --- TAB 5: LEMBRETES ---
 with tab5:
     st.subheader("📅 Agendar Lembrete de Pagamento")
     with st.form("f_lembrete"):
         l_nome = st.text_input("Nome do Lembrete (ex: Aluguel, Fornecedor X)")
         col_d, col_v = st.columns(2)
-        l_data = col_d.date_input("Data de Pagamento")
+        # Campo de data no formato dia/mês/ano para o usuário
+        l_data = col_d.date_input("Data de Pagamento", format="DD/MM/YYYY")
         l_valor = col_v.number_input("Valor R$", min_value=0.0, format="%.2f")
         if st.form_submit_button("Salvar Lembrete"):
-            novo_l = pd.DataFrame([{"Nome": l_nome, "Data": l_data.strftime("%Y-%m-%d"), "Valor": l_valor}])
+            # Salva na planilha já formatado em dia/mês/ano
+            novo_l = pd.DataFrame([{"Nome": l_nome, "Data": l_data.strftime("%d/%m/%Y"), "Valor": l_valor}])
             atualizar_planilha("Lembretes", pd.concat([df_lembretes, novo_l], ignore_index=True))
             st.success("Lembrete agendado!"); st.rerun()
     st.markdown("---")
@@ -269,4 +285,3 @@ with tab5:
                 atualizar_planilha("Lembretes", df_lembretes.drop(idx)); st.rerun()
             c_info.write(f"**{row['Nome']}** - Vence em: {row['Data']} - **R$ {limpar_valor(row['Valor']):.2f}**")
     else: st.info("Nenhum lembrete cadastrado.")
-

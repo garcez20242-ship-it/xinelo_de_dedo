@@ -31,9 +31,7 @@ def carregar_dados():
             except: return pd.DataFrame(columns=colunas)
         
         df_e = ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO)
-        # Adicionado coluna Valor Total em Pedidos
         df_p = ler_aba("Pedidos", ["Data", "Cliente", "Resumo do Pedido", "Valor Total"])
-        # Separado Loja e Cidade em Clientes
         df_c = ler_aba("Clientes", ["Nome", "Loja", "Cidade", "Telefone"])
         df_a = ler_aba("Aquisicoes", ["Data", "Resumo da Carga", "Valor Total"])
         return conn, df_e, df_p, df_c, df_a
@@ -83,7 +81,7 @@ with tab1:
             t_aq = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="ent_tam")
             col_q, col_v = st.columns(2)
             q_aq = col_q.number_input("Qtd", min_value=1, step=1, key="ent_q")
-            v_uni = col_v.number_input("R$ Unit.", min_value=0.0, format="%.2f", key="ent_v")
+            v_uni = col_v.number_input("R$ Unit. (Compra)", min_value=0.0, format="%.2f", key="ent_v")
             if st.button("➕ Add Compra"):
                 st.session_state.carrinho_ent.append({"Modelo": m_aq, "Tamanho": t_aq, "Qtd": q_aq, "Unitário": v_uni, "Subtotal": q_aq * v_uni})
             
@@ -93,8 +91,8 @@ with tab1:
                 cx.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - R${item['Subtotal']:.2f}")
             
             if st.session_state.carrinho_ent:
-                total_c = sum(i['Subtotal'] for i in st.session_state.carrinho_ent)
-                if st.button(f"✅ Confirmar R$ {total_c:.2f}", type="primary"):
+                total_compra = sum(i['Subtotal'] for i in st.session_state.carrinho_ent)
+                if st.button(f"✅ Confirmar Entrada (R$ {total_compra:.2f})", type="primary"):
                     df_e_new = df_estoque.copy()
                     res_f = []
                     for i in st.session_state.carrinho_ent:
@@ -102,8 +100,10 @@ with tab1:
                         val_at = int(float(df_e_new.at[idx, i['Tamanho']])) if str(df_e_new.at[idx, i['Tamanho']]) != "" else 0
                         df_e_new.at[idx, i['Tamanho']] = val_at + i['Qtd']
                         res_f.append(f"{i['Modelo']}({i['Tamanho']}) x{i['Qtd']}")
+                    
+                    nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": f"{total_compra:.2f}"}])], ignore_index=True)
                     atualizar_planilha("Estoque", df_e_new)
-                    atualizar_planilha("Aquisicoes", pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": f"{total_c:.2f}"}])], ignore_index=True))
+                    atualizar_planilha("Aquisicoes", nova_aq)
                     st.session_state.carrinho_ent = []; st.rerun()
     with c2:
         st.subheader("📋 Inventário")
@@ -124,7 +124,7 @@ with tab_cad:
                 ni = {"Modelo": n_m}; ni.update(ipts)
                 atualizar_planilha("Estoque", pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)); st.rerun()
 
-# --- TAB 3: VENDAS (COM VALORES) ---
+# --- TAB 3: VENDAS (VALORES COMPLETOS) ---
 with tab2:
     if 'carrinho_v' not in st.session_state: st.session_state.carrinho_v = []
     c1, c2 = st.columns([1, 1])
@@ -135,46 +135,63 @@ with tab2:
         v_t = st.selectbox("Tamanho", TAMANHOS_PADRAO)
         try: disp = int(float(df_estoque.loc[df_estoque['Modelo'] == v_m, v_t].values[0]))
         except: disp = 0
-        st.metric("Estoque", disp)
+        st.metric("Estoque Disponível", disp)
         col_vq, col_vv = st.columns(2)
         v_q = col_vq.number_input("Qtd", min_value=0, max_value=max(0, disp), step=1)
-        v_p = col_vv.number_input("R$ Unit.", min_value=0.0, format="%.2f")
+        v_p = col_vv.number_input("R$ Unit. (Venda)", min_value=0.0, format="%.2f")
         if st.button("➕ Add Item"):
-            if v_q > 0: st.session_state.carrinho_v.append({"Modelo": v_m, "Tamanho": v_t, "Qtd": v_q, "Preço": v_p, "Subtotal": v_q * v_p}); st.rerun()
+            if v_q > 0: 
+                st.session_state.carrinho_v.append({"Modelo": v_m, "Tamanho": v_t, "Qtd": v_q, "Preço": v_p, "Subtotal": v_q * v_p})
+                st.rerun()
     with c2:
         for idx, item in enumerate(st.session_state.carrinho_v):
             cd, ct = st.columns([0.1, 0.9])
             if cd.button("🗑️", key=f"dv_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
             ct.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - R${item['Subtotal']:.2f}")
+        
         if st.session_state.carrinho_v:
-            total_v = sum(i['Subtotal'] for i in st.session_state.carrinho_v)
-            if st.button(f"🚀 Finalizar R$ {total_v:.2f}", type="primary"):
+            total_venda = sum(i['Subtotal'] for i in st.session_state.carrinho_v)
+            if st.button(f"🚀 Finalizar Venda (R$ {total_venda:.2f})", type="primary"):
                 df_ev = df_estoque.copy()
                 res_v = []
                 for it in st.session_state.carrinho_v:
                     ix = df_ev.index[df_ev['Modelo'] == it['Modelo']][0]
                     df_ev.at[ix, it['Tamanho']] = int(float(df_ev.at[ix, it['Tamanho']])) - it['Qtd']
                     res_v.append(f"{it['Modelo']}({it['Tamanho']} x{it['Qtd']})")
+                
+                nova_venda = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": f"{total_venda:.2f}"}])], ignore_index=True)
                 atualizar_planilha("Estoque", df_ev)
-                atualizar_planilha("Pedidos", pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": f"{total_v:.2f}"}])], ignore_index=True))
+                atualizar_planilha("Pedidos", nova_venda)
                 st.session_state.carrinho_v = []; st.rerun()
 
-# --- TAB 4: CLIENTES (SEPARADO) ---
+# --- TAB 4: CLIENTES (LOJA E CIDADE SEPARADOS) ---
 with tab3:
+    st.subheader("👥 Cadastro de Clientes")
     with st.form("f_cli"):
         col1, col2 = st.columns(2)
         n_c, l_c = col1.text_input("Nome"), col2.text_input("Loja")
         c_c, t_c = col1.text_input("Cidade"), col2.text_input("Telefone")
-        if st.form_submit_button("Salvar"):
-            atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": c_c, "Telefone": t_c}])], ignore_index=True)); st.rerun()
+        if st.form_submit_button("Salvar Cliente"):
+            if n_c:
+                atualizar_planilha("Clientes", pd.concat([df_clientes, pd.DataFrame([{"Nome": n_c, "Loja": l_c, "Cidade": c_c, "Telefone": t_c}])], ignore_index=True))
+                st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO ---
+# --- TAB 5: EXTRATO FINANCEIRO ---
 with tab4:
+    st.subheader("🧾 Extrato de Movimentação")
+    # Processa Saídas (Vendas)
     ev = df_pedidos.copy()
-    ev['Tipo'], ev['Descrição'], ev['Total'] = "🔴 SAÍDA", ev['Cliente'] + ": " + ev['Resumo do Pedido'], ev['Valor Total'].apply(lambda x: f"R$ {x}")
+    ev['Tipo'] = "🔴 SAÍDA"
+    ev['Descrição'] = ev['Cliente'].astype(str) + ": " + ev['Resumo do Pedido'].astype(str)
+    ev['Total'] = ev['Valor Total'].apply(lambda x: f"R$ {float(x):.2f}" if x != "" else "R$ 0.00")
+    
+    # Processa Entradas (Compras)
     ea = df_aquisicoes.copy()
-    ea['Tipo'], ea['Descrição'], ea['Total'] = "🟢 ENTRADA", ea['Resumo da Carga'], ea['Valor Total'].apply(lambda x: f"R$ {x}")
+    ea['Tipo'] = "🟢 ENTRADA"
+    ea['Descrição'] = ea['Resumo da Carga'].astype(str)
+    ea['Total'] = ea['Valor Total'].apply(lambda x: f"R$ {float(x):.2f}" if x != "" else "R$ 0.00")
+    
     u = pd.concat([ev[['Data', 'Tipo', 'Descrição', 'Total']], ea[['Data', 'Tipo', 'Descrição', 'Total']]], ignore_index=True)
     if not u.empty:
         u['DS'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')

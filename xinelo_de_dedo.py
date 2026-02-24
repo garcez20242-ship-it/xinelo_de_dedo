@@ -81,6 +81,12 @@ df_estoque, df_pedidos, df_clientes = d["est"], d["ped"], d["cli"]
 df_insumos, df_lembretes, df_hist_precos, df_aquisicoes = d["ins"], d["lem"], d["his"], d["aqui"]
 
 def atualizar(aba, df):
+    # TRAVA DE SEGURANÇA: Impede salvar se o DataFrame estiver quase vazio
+    # Se a aba for 'Estoque' e tiver menos de 1 linha, ou se o DF for nulo, ele cancela.
+    if df is None or (aba == "Estoque" and len(df) < 1):
+        st.error(f"🚨 ERRO DE SEGURANÇA: O sistema tentou salvar a aba '{aba}' vazia. Operação cancelada para proteger seus dados.")
+        return
+
     try:
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df.astype(str).replace('nan', ''))
         st.cache_data.clear()
@@ -88,8 +94,11 @@ def atualizar(aba, df):
         time.sleep(1)
         st.rerun()
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
-
+        if "429" in str(e):
+            st.error("🚨 Limite do Google atingido. Aguarde 30 segundos.")
+        else:
+            st.error(f"Erro ao salvar: {e}")
+            
 # --- BARRA LATERAL (ORDEM SOLICITADA) ---
 with st.sidebar:
     st.header("🔄 Sistema")
@@ -285,3 +294,4 @@ with tabs[7]:
         if not df_plot.empty:
             st.line_chart(df_plot, x='DT', y='Preco_Unit')
             st.table(df_plot[['Data', 'Preco_Unit']].sort_values('DT', ascending=False))
+

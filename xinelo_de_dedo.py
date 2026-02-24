@@ -7,7 +7,7 @@ import io
 import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Xinelo de Dedo v4.2", layout="wide", page_icon="🩴")
+st.set_page_config(page_title="Xinelo de Dedo v4.3", layout="wide", page_icon="🩴")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
@@ -50,34 +50,47 @@ def gerar_recibo(dados_venda):
     except Exception as e:
         return f"Erro PDF: {e}".encode('latin-1')
 
-# --- CONEXÃO E CARREGAMENTO (CORREÇÃO DO RECURSION ERROR) ---
+# --- CONEXÃO COM CACHE CONTROLADO (PARA EVITAR ERRO 429) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def ler_aba(nome, colunas):
-    try:
-        df = conn.read(spreadsheet=URL_PLANILHA, worksheet=nome, ttl="0s")
-        if df is None or df.empty: return pd.DataFrame(columns=colunas)
-        df = df.dropna(how='all').loc[:, ~df.columns.str.contains('^Unnamed')]
-        df.columns = df.columns.str.strip()
-        for col in colunas:
-            if col not in df.columns: df[col] = 0 if col in TAMANHOS_PADRAO else ""
-        return df
-    except: 
-        return pd.DataFrame(columns=colunas)
+@st.cache_data(ttl=10) # Cache de 10 segundos para não sobrecarregar o Google
+def ler_todas_as_abas():
+    def ler_aba(nome, colunas):
+        try:
+            df = conn.read(spreadsheet=URL_PLANILHA, worksheet=nome, ttl="0s")
+            if df is None or df.empty: return pd.DataFrame(columns=colunas)
+            df = df.dropna(how='all').loc[:, ~df.columns.str.contains('^Unnamed')]
+            df.columns = df.columns.str.strip()
+            for col in colunas:
+                if col not in df.columns: df[col] = 0 if col in TAMANHOS_PADRAO else ""
+            return df
+        except: return pd.DataFrame(columns=colunas)
+    
+    return {
+        "Estoque": ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO),
+        "Pedidos": ler_aba("Pedidos", ["Data", "Cliente", "Resumo", "Valor Total", "Status Pagto", "Forma"]),
+        "Clientes": ler_aba("Clientes", ["Nome", "Loja", "Cidade", "Telefone"]),
+        "Aquisicoes": ler_aba("Aquisicoes", ["Data", "Resumo", "Valor Total"]),
+        "Insumos": ler_aba("Insumos", ["Data", "Descricao", "Valor"]),
+        "Lembretes": ler_aba("Lembretes", ["Nome", "Data", "Valor"]),
+        "Historico_Precos": ler_aba("Historico_Precos", ["Data", "Modelo", "Preco_Unit"])
+    }
 
-# Carregamento Direto (Sem cache aninhado para evitar o loop)
-df_estoque = ler_aba("Estoque", ["Modelo"] + TAMANHOS_PADRAO)
-df_pedidos = ler_aba("Pedidos", ["Data", "Cliente", "Resumo", "Valor Total", "Status Pagto", "Forma"])
-df_clientes = ler_aba("Clientes", ["Nome", "Loja", "Cidade", "Telefone"])
-df_aquisicoes = ler_aba("Aquisicoes", ["Data", "Resumo", "Valor Total"])
-df_insumos = ler_aba("Insumos", ["Data", "Descricao", "Valor"])
-df_lembretes = ler_aba("Lembretes", ["Nome", "Data", "Valor"])
-df_hist_precos = ler_aba("Historico_Precos", ["Data", "Modelo", "Preco_Unit"])
+# Carregar dados do cache
+dados = ler_todas_as_abas()
+df_estoque = dados["Estoque"]
+df_pedidos = dados["Pedidos"]
+df_clientes = dados["Clientes"]
+df_aquisicoes = dados["Aquisicoes"]
+df_insumos = dados["Insumos"]
+df_lembretes = dados["Lembretes"]
+df_hist_precos = dados["Historico_Precos"]
 
 def atualizar_planilha(aba, dataframe):
     try:
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
-        st.cache_data.clear()
+        st.cache_data.clear() # Limpa o cache para a próxima leitura vir atualizada
+        st.success(f"Salvo com sucesso em {aba}!")
         time.sleep(1)
         st.rerun()
     except Exception as e:
@@ -113,7 +126,7 @@ with st.sidebar:
             if criticos: st.warning(f"**{r['Modelo']}**:\n{', '.join(criticos)}")
 
 # --- INTERFACE ---
-st.title("🩴 Gestão Xinelo de Dedo v4.2")
+st.title("🩴 Gestão Xinelo de Dedo v4.3")
 tabs = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços"])
 
 # 1. ESTOQUE

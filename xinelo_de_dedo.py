@@ -14,53 +14,30 @@ URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0a
 ID_PASTA_FOTOS = "1JbPRCBYbCI4pByztZgtlH_6NoZXm_Myq" 
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
 
+# --- FUNÇÕES DE APOIO ---
 def get_drive_service():
-    info = st.secrets["connections"]["gsheets"]
-    creds = service_account.Credentials.from_service_account_info(
-        info, 
-        scopes=['https://www.googleapis.com/auth/drive']
-    )
-    return build('drive', 'v3', credentials=creds)
+    try:
+        info = st.secrets["connections"]["gsheets"]
+        creds = service_account.Credentials.from_service_account_info(
+            info, scopes=['https://www.googleapis.com/auth/drive']
+        )
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"Erro na configuração das credenciais: {e}")
+        return None
 
 def upload_para_drive(file):
+    service = get_drive_service()
+    if not service: return ""
     try:
-        service = get_drive_service()
-        
-        # Metadata simplificada
-        file_metadata = {
-            'name': f"FOTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.name}",
-            'parents': [ID_PASTA_FOTOS]
-        }
-        
-        # Forçamos o upload para ser não-resumable (ajuda com quotas de Service Accounts)
+        file_metadata = {'name': f"FOTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.name}", 'parents': [ID_PASTA_FOTOS]}
         media = MediaIoBaseUpload(io.BytesIO(file.getvalue()), mimetype=file.type, resumable=False)
-        
-        # Criar o arquivo
-        uploaded_file = service.files().create(
-            body=file_metadata, 
-            media_body=media, 
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
         file_id = uploaded_file.get('id')
-        
-        # Tenta tornar o arquivo público para visualização
-        try:
-            service.permissions().create(
-                fileId=file_id,
-                body={'type': 'anyone', 'role': 'reader'},
-                supportsAllDrives=True
-            ).execute()
-        except:
-            pass # Se falhar a permissão, o link pode não funcionar, mas o upload ocorreu
-            
+        service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}, supportsAllDrives=True).execute()
         return f"https://drive.google.com/uc?export=view&id={file_id}"
-    
     except Exception as e:
-        # Se o erro de quota persistir, mostramos uma alternativa manual
-        st.error(f"Erro de Quota no Drive: {e}")
-        st.info("💡 Dica: Verifique se a pasta no Drive não está cheia ou tente usar uma conta de serviço vinculada a um Google Workspace.")
+        st.warning(f"O Google Drive recusou o upload (Erro de Cota 403). A foto não será salva, mas o modelo será cadastrado. Erro: {e}")
         return ""
 
 @st.cache_data(ttl=0)
@@ -72,16 +49,20 @@ def carregar_dados():
                 df = conn.read(spreadsheet=URL_PLANILHA, worksheet=nome, ttl=0).dropna(how='all')
                 if df is None or df.empty: return pd.DataFrame(columns=colunas)
                 df.columns = df.columns.str.strip()
+                # Garante que todas as colunas padrão existam no DF
+                for col in colunas:
+                    if col not in df.columns: df[col] = ""
                 return df
-            except: return pd.DataFrame(columns=colunas)
+            except: 
+                return pd.DataFrame(columns=colunas)
         
         df_e = ler_aba("Estoque", ["Modelo", "Imagem"] + TAMANHOS_PADRAO)
         df_p = ler_aba("Pedidos", ["Data", "Cliente", "Resumo do Pedido"])
         df_c = ler_aba("Clientes", ["Nome", "Loja", "Telefone", "Cidade"])
         return conn, df_e, df_p, df_c
     except Exception as e:
-        st.error(f"Erro na conexão: {e}")
-        return None, None, None, None
+        st.error(f"Erro crítico de conexão: {e}")
+        return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 conn, df_estoque, df_pedidos, df_clientes = carregar_dados()
 
@@ -92,106 +73,114 @@ def atualizar_planilha(aba, dataframe):
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_limpo)
         st.cache_data.clear()
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- INTERFACE ---
+# --- INTERFACE (AS ABAS SÃO CRIADAS AQUI) ---
 st.title("👡 Gestão Comercial - Sandálias Nuvem")
 
-if conn is not None:
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "📜 Histórico"])
+# Criamos as abas fora de qualquer condicional de erro para garantir visibilidade
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "📜 Histórico"])
 
-    with tab1:
-        with st.expander("✨ Cadastrar Novo Modelo"):
-            with st.form("f_mod"):
-                m_n = st.text_input("Nome do Modelo")
-                m_f = st.file_uploader("Carregar Foto", type=['png','jpg','jpeg'])
-                cols = st.columns(5)
-                q_d = {t: cols[i%5].number_input(f"T {t}", min_value=0) for i, t in enumerate(TAMANHOS_PADRAO)}
-                if st.form_submit_button("Salvar Modelo"):
-                    if m_n:
-                        with st.spinner("Enviando foto para o Drive..."):
-                            img_url = upload_para_drive(m_f) if m_f else ""
-                        if img_url:
-                            ni = {"Modelo": m_n, "Imagem": img_url}
-                            ni.update(q_d)
-                            df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
-                            atualizar_planilha("Estoque", df_estoque)
-                            st.rerun()
+# --- ABA 1: ESTOQUE ---
+with tab1:
+    with st.expander("✨ Cadastrar Novo Modelo"):
+        with st.form("f_mod"):
+            m_n = st.text_input("Nome do Modelo")
+            m_f = st.file_uploader("Foto", type=['png','jpg','jpeg'])
+            cols = st.columns(5)
+            q_d = {t: cols[i%5].number_input(f"T {t}", min_value=0, key=f"in_{t}") for i, t in enumerate(TAMANHOS_PADRAO)}
+            if st.form_submit_button("Salvar Modelo"):
+                if m_n:
+                    with st.spinner("Processando..."):
+                        img_url = upload_para_drive(m_f) if m_f else ""
+                    ni = {"Modelo": m_n, "Imagem": img_url}
+                    ni.update(q_d)
+                    df_estoque = pd.concat([df_estoque, pd.DataFrame([ni])], ignore_index=True)
+                    atualizar_planilha("Estoque", df_estoque)
+                    st.rerun()
 
-        st.divider()
-        if df_estoque.empty:
-            st.info("Nenhum modelo cadastrado.")
-        else:
-            modo_edicao = st.toggle("🔓 Editar Estoque")
-            for idx, row in df_estoque.iterrows():
-                with st.expander(f"👟 {row['Modelo']}"):
-                    col_img, col_info = st.columns([1, 3])
-                    if pd.notna(row.get('Imagem')) and str(row['Imagem']).startswith('http'):
-                        col_img.image(row['Imagem'], width=180)
+    st.divider()
+    if df_estoque.empty:
+        st.info("Nenhum modelo cadastrado no estoque.")
+    else:
+        modo_edicao = st.toggle("🔓 Modo Edição")
+        for idx, row in df_estoque.iterrows():
+            with st.expander(f"👟 {row['Modelo']}"):
+                col_img, col_info = st.columns([1, 3])
+                if row['Imagem']:
+                    col_img.image(row['Imagem'], width=150)
+                
+                if modo_edicao:
+                    n_nome = col_info.text_input("Nome", value=row['Modelo'], key=f"en_{idx}")
+                    if col_info.button("Atualizar ✅", key=f"bt_{idx}"):
+                        df_estoque.at[idx, 'Modelo'] = n_nome
+                        atualizar_planilha("Estoque", df_estoque); st.rerun()
+                else:
+                    col_info.dataframe(row[TAMANHOS_PADRAO].to_frame().T, hide_index=True)
+
+# --- ABA 2: VENDAS ---
+with tab2:
+    if 'carrinho' not in st.session_state: st.session_state.carrinho = []
+    
+    if df_clientes.empty:
+        st.warning("⚠️ Cadastre um cliente na aba 'Clientes' antes de vender.")
+    elif df_estoque.empty:
+        st.warning("⚠️ Cadastre modelos no 'Estoque' antes de vender.")
+    else:
+        v_cli = st.selectbox("Selecione o Cliente", df_clientes['Nome'].unique())
+        c1, c2 = st.columns([1.5, 2.5])
+        with c1:
+            v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique())
+            v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO)
+            v_qtd = st.number_input("Qtd", min_value=1)
+            if st.button("Adicionar ao Carrinho ➕"):
+                st.session_state.carrinho.append({"Modelo": v_mod, "Tamanho": v_tam, "Qtd": v_qtd})
+        with c2:
+            if st.session_state.carrinho:
+                st.table(pd.DataFrame(st.session_state.carrinho))
+                if st.button("Finalizar Venda 🚀"):
+                    resumo = []
+                    for item in st.session_state.carrinho:
+                        idx_e = df_estoque.index[df_estoque['Modelo'] == item['Modelo']][0]
+                        atual = int(pd.to_numeric(df_estoque.at[idx_e, item['Tamanho']], errors='coerce') or 0)
+                        df_estoque.at[idx_e, item['Tamanho']] = atual - item['Qtd']
+                        resumo.append(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']}")
                     
-                    if modo_edicao:
-                        n_nome = col_info.text_input("Editar Nome", value=row['Modelo'], key=f"ed_n_{idx}")
-                        if col_info.button("Salvar ✅", key=f"sv_{idx}"):
-                            df_estoque.at[idx, 'Modelo'] = n_nome
-                            atualizar_planilha("Estoque", df_estoque); st.rerun()
-                        if st.checkbox("Apagar modelo?", key=f"chk_m_{idx}"):
-                            if st.button("CONFIRMAR", key=f"del_m_{idx}"):
-                                df_estoque = df_estoque.drop(idx); atualizar_planilha("Estoque", df_estoque); st.rerun()
-                    else:
-                        col_info.dataframe(row[TAMANHOS_PADRAO].to_frame().T, hide_index=True)
+                    novo_p = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Cliente": v_cli, "Resumo do Pedido": " | ".join(resumo)}])
+                    df_pedidos = pd.concat([df_pedidos, novo_p], ignore_index=True)
+                    atualizar_planilha("Estoque", df_estoque)
+                    atualizar_planilha("Pedidos", df_pedidos)
+                    st.session_state.carrinho = []
+                    st.rerun()
 
-    with tab2:
-        if 'carrinho' not in st.session_state: st.session_state.carrinho = []
-        st.subheader("🛒 Vendas")
-        if not df_clientes.empty and not df_estoque.empty:
-            v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique())
-            c1, c2 = st.columns([1.5, 2.5])
-            with c1:
-                v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique())
-                v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO)
-                v_qtd = st.number_input("Qtd", min_value=1)
-                if st.button("Adicionar"):
-                    st.session_state.carrinho.append({"Modelo": v_mod, "Tamanho": v_tam, "Qtd": v_qtd})
-            with c2:
-                if st.session_state.carrinho:
-                    st.table(pd.DataFrame(st.session_state.carrinho))
-                    if st.button("Finalizar Pedido"):
-                        resumo = []
-                        for item in st.session_state.carrinho:
-                            idx_e = df_estoque.index[df_estoque['Modelo'] == item['Modelo']][0]
-                            atual = int(pd.to_numeric(df_estoque.at[idx_e, item['Tamanho']]) or 0)
-                            df_estoque.at[idx_e, item['Tamanho']] = atual - item['Qtd']
-                            resumo.append(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']}")
-                        novo_p = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Cliente": v_cli, "Resumo do Pedido": " | ".join(resumo)}])
-                        df_pedidos = pd.concat([df_pedidos, novo_p], ignore_index=True)
-                        atualizar_planilha("Estoque", df_estoque); atualizar_planilha("Pedidos", df_pedidos)
-                        st.session_state.carrinho = []; st.rerun()
+# --- ABA 3: CLIENTES ---
+with tab3:
+    with st.expander("👤 Cadastrar Novo Cliente"):
+        with st.form("f_cli"):
+            cn = st.text_input("Nome Completo"); cl = st.text_input("Loja"); ct = st.text_input("Telefone"); cc = st.text_input("Cidade")
+            if st.form_submit_button("Salvar Cliente"):
+                if cn:
+                    nc = pd.DataFrame([{"Nome": cn, "Loja": cl, "Telefone": ct, "Cidade": cc}])
+                    df_clientes = pd.concat([df_clientes, nc], ignore_index=True)
+                    atualizar_planilha("Clientes", df_clientes); st.rerun()
 
-    with tab3:
-        with st.expander("👤 Novo Cliente"):
-            with st.form("f_cli"):
-                cn = st.text_input("Nome"); cl = st.text_input("Loja"); ct = st.text_input("Tel"); cc = st.text_input("Cidade")
-                if st.form_submit_button("Salvar Cliente"):
-                    if cn:
-                        nc = pd.DataFrame([{"Nome": cn, "Loja": cl, "Telefone": ct, "Cidade": cc}])
-                        df_clientes = pd.concat([df_clientes, nc], ignore_index=True)
-                        atualizar_planilha("Clientes", df_clientes); st.rerun()
-        st.divider()
+    st.divider()
+    if df_clientes.empty:
+        st.info("Nenhum cliente cadastrado.")
+    else:
         for idx, row in df_clientes.iterrows():
             with st.expander(f"👤 {row['Nome']}"):
-                c_t, c_d = st.columns([4, 1])
-                c_t.write(f"Loja: {row.get('Loja','')} | Tel: {row.get('Telefone','')} | Cidade: {row.get('Cidade','')}")
-                if c_d.checkbox("Apagar?", key=f"c_cl_{idx}"):
-                    if c_d.button("Confirmar", key=f"d_cl_{idx}"):
+                st.write(f"Loja: {row['Loja']} | Tel: {row['Telefone']} | Cidade: {row['Cidade']}")
+                if st.checkbox("Apagar?", key=f"del_c_{idx}"):
+                    if st.button("Confirmar Exclusão", key=f"conf_c_{idx}"):
                         df_clientes = df_clientes.drop(idx); atualizar_planilha("Clientes", df_clientes); st.rerun()
 
-    with tab4:
-        st.subheader("📜 Histórico")
-        if not df_pedidos.empty:
-            for idx in reversed(df_pedidos.index):
-                row = df_pedidos.loc[idx]
-                c_t, c_a = st.columns([5, 1])
-                c_t.write(f"**{row['Data']}** - {row['Cliente']}: {row['Resumo do Pedido']}")
-                if c_a.checkbox("X", key=f"c_h_{idx}"):
-                    if c_a.button("Excluir", key=f"d_h_{idx}"):
-                        df_pedidos = df_pedidos.drop(idx); atualizar_planilha("Pedidos", df_pedidos); st.rerun()
+# --- ABA 4: HISTÓRICO ---
+with tab4:
+    st.subheader("📜 Histórico de Pedidos")
+    if df_pedidos.empty:
+        st.info("Nenhum pedido realizado.")
+    else:
+        for idx in reversed(df_pedidos.index):
+            row = df_pedidos.loc[idx]
+            st.write(f"**{row['Data']}** - {row['Cliente']}: {row['Resumo do Pedido']}")

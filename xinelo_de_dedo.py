@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import io
+import time # Adicionado para controlar o fluxo da API
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Xinelo de Dedo", layout="wide", page_icon="🩴")
@@ -78,8 +79,12 @@ def carregar_dados():
 conn, df_estoque, df_pedidos, df_clientes, df_aquisicoes, df_insumos, df_lembretes, df_hist_precos = carregar_dados()
 
 def atualizar_planilha(aba, dataframe):
-    conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
-    st.cache_data.clear()
+    try:
+        conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=dataframe.astype(str).replace('nan', ''))
+        st.cache_data.clear()
+        time.sleep(1) # Pausa técnica para evitar erro de cota da API do Google
+    except Exception as e:
+        st.error(f"Erro ao salvar na planilha: {e}. Verifique as permissões de edição.")
 
 # --- BARRA LATERAL ---
 with st.sidebar:
@@ -120,7 +125,7 @@ with st.sidebar:
         if alerta_vazio: st.success("✅ Estoque abastecido")
 
 # --- INTERFACE ---
-st.title("🩴 Gestão Xinelo de Dedo v3.7")
+st.title("🩴 Gestão Xinelo de Dedo v3.8")
 tab1, tab_cad, tab2, tab_ins, tab3, tab4, tab5, tab6 = st.tabs(["📊 Estoque", "✨ Novo Modelo", "🛒 Vendas", "🛠️ Insumos", "👥 Clientes", "🧾 Extrato", "📅 Lembretes", "📈 Preços Compra"])
 
 # --- TAB 1: ESTOQUE ---
@@ -190,7 +195,6 @@ with tab2:
             v_cli = st.selectbox("Cliente", df_clientes['Nome'].unique() if not df_clientes.empty else ["Cliente Avulso"], key="v_cli")
             v_mod = st.selectbox("Modelo", df_estoque['Modelo'].unique(), key="v_mod")
             v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="v_tam")
-            # Localiza estoque disponível
             linha_est = df_estoque.loc[df_estoque['Modelo'] == v_mod, v_tam]
             est_disp = int(float(linha_est.values[0])) if not linha_est.empty else 0
             st.write(f"Disponível: {est_disp}")
@@ -200,7 +204,6 @@ with tab2:
                 if est_disp >= v_qtd:
                     st.session_state.carrinho_v.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Sub": v_qtd*v_pre})
                     st.rerun()
-                else: st.error("Estoque insuficiente!")
     with c2:
         st.subheader("📄 Resumo")
         for i, it in enumerate(st.session_state.carrinho_v):
@@ -214,15 +217,10 @@ with tab2:
                 df_e_v = df_estoque.copy()
                 sucesso = True
                 for x in st.session_state.carrinho_v:
-                    # Correção do IndexError: Verifica se o modelo existe antes de indexar
                     indices = df_e_v.index[df_e_v['Modelo'] == x['Mod']]
                     if not indices.empty:
                         ix = indices[0]
                         df_e_v.at[ix, x['Tam']] = int(float(df_e_v.at[ix, x['Tam']])) - x['Qtd']
-                    else:
-                        st.error(f"Erro: Modelo {x['Mod']} não encontrado no estoque!")
-                        sucesso = False
-                
                 if sucesso:
                     resumo = " | ".join([f"{x['Mod']}({x['Tam']}x{x['Qtd']})" for x in st.session_state.carrinho_v])
                     atualizar_planilha("Estoque", df_e_v)

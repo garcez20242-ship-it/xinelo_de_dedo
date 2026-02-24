@@ -48,7 +48,7 @@ def atualizar_planilha(aba, dataframe):
         df_save = df_save.loc[:, ~df_save.columns.str.contains('^Unnamed')]
         df_save = df_save.astype(str).replace('nan', '')
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_save)
-        st.cache_data.clear()
+        st.cache_data.clear() # Força a recarga total dos dados no próximo rerun
     except Exception as e:
         st.error(f"Erro ao salvar: {e}")
         st.stop()
@@ -96,8 +96,7 @@ with tab1:
             if st.session_state.carrinho_ent:
                 st.write("---")
                 for i, item in enumerate(st.session_state.carrinho_ent):
-                    # Coluna do ícone bem pequena (0.1)
-                    cd, cx = st.columns([0.1, 0.9])
+                    cd, cx = st.columns([0.08, 0.92]) # Lixeira pequena
                     if cd.button("🗑️", key=f"del_ent_car_{i}"):
                         st.session_state.carrinho_ent.pop(i)
                         st.rerun()
@@ -110,7 +109,7 @@ with tab1:
                     res_f = []
                     for i in st.session_state.carrinho_ent:
                         idx = df_e_new.index[df_e_new['Modelo'] == i['Modelo']][0]
-                        val_at = int(float(df_e_new.at[idx, i['Tamanho']])) if df_e_new.at[idx, i['Tamanho']] != "" else 0
+                        val_at = int(float(df_e_new.at[idx, i['Tamanho']])) if str(df_e_new.at[idx, i['Tamanho']]) != "" else 0
                         df_e_new.at[idx, i['Tamanho']] = val_at + i['Qtd']
                         res_f.append(f"{i['Modelo']}({i['Tamanho']}) x{i['Qtd']} [Un: R${i['Unitário']:.2f}]")
                     
@@ -127,8 +126,7 @@ with tab1:
         st.subheader("📋 Inventário")
         if not df_estoque.empty:
             for idx, row in df_estoque.iterrows():
-                # Reduzi a proporção da coluna da lixeira para 0.08
-                col_del, col_txt = st.columns([0.08, 0.92])
+                col_del, col_txt = st.columns([0.08, 0.92]) # Lixeira pequena
                 if col_del.button("🗑️", key=f"excluir_mod_{idx}"):
                     df_novo_est = df_estoque.drop(idx)
                     atualizar_planilha("Estoque", df_novo_est)
@@ -171,8 +169,7 @@ with tab2:
     with c2:
         if st.session_state.carrinho_v:
             for idx, item in enumerate(st.session_state.carrinho_v):
-                # Coluna do ícone pequena (0.1)
-                cd, ct = st.columns([0.1, 0.9])
+                cd, ct = st.columns([0.08, 0.92]) # Lixeira pequena
                 if cd.button("🗑️", key=f"del_v_car_{idx}"):
                     st.session_state.carrinho_v.pop(idx)
                     st.rerun()
@@ -205,14 +202,20 @@ with tab3:
                 st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO ---
+# --- TAB 5: EXTRATO (AJUSTADO PARA ATUALIZAÇÃO) ---
 with tab4:
     st.subheader("🧾 Extrato de Movimentação")
+    # Recarrega localmente para garantir que o extrato veja o que acabou de ser salvo
     ev = df_pedidos.copy()
-    ev['Tipo'], ev['Descrição'], ev['Total'] = "🔴 SAÍDA", ev['Cliente'] + ": " + ev['Resumo do Pedido'], "---"
+    ev['Tipo'], ev['Descrição'], ev['Total'] = "🔴 SAÍDA", ev['Cliente'].astype(str) + ": " + ev['Resumo do Pedido'].astype(str), "---"
+    
     ea = df_aquisicoes.copy()
-    ea['Tipo'], ea['Descrição'], ea['Total'] = "🟢 ENTRADA", ea['Resumo da Carga'], ea['Valor Total'].apply(lambda x: f"R$ {x}")
+    ea['Tipo'], ea['Descrição'], ea['Total'] = "🟢 ENTRADA", ea['Resumo da Carga'].astype(str), ea['Valor Total'].apply(lambda x: f"R$ {x}")
+    
     u = pd.concat([ev[['Data', 'Tipo', 'Descrição', 'Total']], ea[['Data', 'Tipo', 'Descrição', 'Total']]], ignore_index=True)
     if not u.empty:
+        # Garante que a coluna de data seja interpretada corretamente para ordenação
         u['DS'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
         st.dataframe(u.sort_values('DS', ascending=False).drop('DS', axis=1), use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma movimentação registrada.")

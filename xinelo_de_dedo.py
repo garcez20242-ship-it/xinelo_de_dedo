@@ -88,11 +88,12 @@ with tab1:
             for i, item in enumerate(st.session_state.carrinho_ent):
                 cd, cx = st.columns([0.08, 0.92])
                 if cd.button("🗑️", key=f"de_{i}"): st.session_state.carrinho_ent.pop(i); st.rerun()
-                cx.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - R${item['Subtotal']:.2f}")
+                cx.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - **R$ {item['Subtotal']:.2f}**")
             
             if st.session_state.carrinho_ent:
                 total_compra = sum(i['Subtotal'] for i in st.session_state.carrinho_ent)
-                if st.button(f"✅ Confirmar Entrada (R$ {total_compra:.2f})", type="primary"):
+                st.markdown(f"### Total: R$ {total_compra:.2f}")
+                if st.button(f"✅ Confirmar Entrada", type="primary"):
                     df_e_new = df_estoque.copy()
                     res_f = []
                     for i in st.session_state.carrinho_ent:
@@ -101,7 +102,6 @@ with tab1:
                         df_e_new.at[idx, i['Tamanho']] = val_at + i['Qtd']
                         res_f.append(f"{i['Modelo']}({i['Tamanho']}) x{i['Qtd']}")
                     
-                    # SALVANDO VALOR TOTAL NA PLANILHA DE AQUISIÇÕES
                     nova_aq = pd.concat([df_aquisicoes, pd.DataFrame([{"Data": get_data_hora(), "Resumo da Carga": " | ".join(res_f), "Valor Total": total_compra}])], ignore_index=True)
                     atualizar_planilha("Estoque", df_e_new)
                     atualizar_planilha("Aquisicoes", nova_aq)
@@ -148,11 +148,12 @@ with tab2:
         for idx, item in enumerate(st.session_state.carrinho_v):
             cd, ct = st.columns([0.1, 0.9])
             if cd.button("🗑️", key=f"dv_{idx}"): st.session_state.carrinho_v.pop(idx); st.rerun()
-            ct.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - R${item['Subtotal']:.2f}")
+            ct.write(f"{item['Modelo']} ({item['Tamanho']}) x{item['Qtd']} - **R$ {item['Subtotal']:.2f}**")
         
         if st.session_state.carrinho_v:
             total_venda = sum(i['Subtotal'] for i in st.session_state.carrinho_v)
-            if st.button(f"🚀 Finalizar Venda (R$ {total_venda:.2f})", type="primary"):
+            st.markdown(f"### Total Venda: R$ {total_venda:.2f}")
+            if st.button(f"🚀 Finalizar Pedido", type="primary"):
                 df_ev = df_estoque.copy()
                 res_v = []
                 for it in st.session_state.carrinho_v:
@@ -160,7 +161,6 @@ with tab2:
                     df_ev.at[ix, it['Tamanho']] = int(float(df_ev.at[ix, it['Tamanho']])) - it['Qtd']
                     res_v.append(f"{it['Modelo']}({it['Tamanho']} x{it['Qtd']})")
                 
-                # SALVANDO VALOR TOTAL NA PLANILHA DE PEDIDOS
                 nova_venda = pd.concat([df_pedidos, pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_c, "Resumo do Pedido": " | ".join(res_v), "Valor Total": total_venda}])], ignore_index=True)
                 atualizar_planilha("Estoque", df_ev)
                 atualizar_planilha("Pedidos", nova_venda)
@@ -179,7 +179,7 @@ with tab3:
                 st.rerun()
     st.dataframe(df_clientes, hide_index=True, use_container_width=True)
 
-# --- TAB 5: EXTRATO (VALORES VISÍVEIS) ---
+# --- TAB 5: EXTRATO ---
 with tab4:
     st.subheader("🧾 Extrato de Movimentação")
     
@@ -187,17 +187,21 @@ with tab4:
     ev = df_pedidos.copy()
     ev['Tipo'] = "🔴 SAÍDA"
     ev['Descrição'] = ev['Cliente'].astype(str) + ": " + ev['Resumo do Pedido'].astype(str)
-    # Formata a coluna Total para exibir R$
-    ev['Total'] = ev['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(x) else "R$ 0.00")
+    ev['Valor_Total_Formatado'] = ev['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(pd.to_numeric(x, errors='coerce')) else "R$ 0.00")
     
     # Processa Entradas
     ea = df_aquisicoes.copy()
     ea['Tipo'] = "🟢 ENTRADA"
     ea['Descrição'] = ea['Resumo da Carga'].astype(str)
-    # Formata a coluna Total para exibir R$
-    ea['Total'] = ea['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(x) else "R$ 0.00")
+    ea['Valor_Total_Formatado'] = ea['Valor Total'].apply(lambda x: f"R$ {pd.to_numeric(x, errors='coerce'):.2f}" if pd.notnull(pd.to_numeric(x, errors='coerce')) else "R$ 0.00")
     
-    u = pd.concat([ev[['Data', 'Tipo', 'Descrição', 'Total']], ea[['Data', 'Tipo', 'Descrição', 'Total']]], ignore_index=True)
+    # Unifica
+    u = pd.concat([
+        ev[['Data', 'Tipo', 'Descrição', 'Valor_Total_Formatado']], 
+        ea[['Data', 'Tipo', 'Descrição', 'Valor_Total_Formatado']]
+    ], ignore_index=True)
+    
     if not u.empty:
+        u.columns = ['Data', 'Tipo', 'Descrição', 'Valor Total']
         u['DS'] = pd.to_datetime(u['Data'], format='%d/%m/%Y %H:%M', errors='coerce')
         st.dataframe(u.sort_values('DS', ascending=False).drop('DS', axis=1), use_container_width=True, hide_index=True)

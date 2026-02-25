@@ -2,259 +2,210 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
-from fpdf import FPDF
 import time
 
-# --- 1. CONFIGURAÇÃO DE AMBIENTE ---
-st.set_page_config(page_title="Gestão Master v8.2", layout="wide", page_icon="🩴")
+# --- 1. CONFIGURAÇÃO ---
+st.set_page_config(page_title="Gestão Master v8.3", layout="wide", page_icon="🩴")
 
-# CSS para melhorar a visualização dos alertas na sidebar
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { background-color: #f0f2f6; }
-    .stAlert { margin-bottom: 8px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. CONSTANTES E VARIÁVEIS DE ESTADO ---
+# --- 2. CONSTANTES ---
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
 TAMANHOS_PADRAO = ["25-26", "27-28", "29-30", "31-32", "33-34", "35-36", "37-38", "39-40", "41-42", "43-44"]
 
-# --- 3. FUNÇÕES TÉCNICAS (SEM RESUMOS) ---
-
+# --- 3. FUNÇÕES DE SUPORTE ---
 def get_data_hora():
-    """Gera timestamp para registro de logs e pedidos"""
     return (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
 
 def converter_para_numero(valor):
-    """Converte qualquer entrada do Google Sheets para float/int com segurança"""
     try:
         if pd.isna(valor) or str(valor).strip() == "" or str(valor).lower() == "nan":
             return 0.0
-        # Remove símbolos de moeda e corrige separadores
         limpo = str(valor).replace('R$', '').replace('.', '').replace(',', '.').strip()
         return float(limpo)
     except:
         return 0.0
 
-def salvar_dados_no_google(aba, dataframe):
-    """Função mestre de salvamento com barreira de sincronização"""
-    try:
-        # Limpeza pré-salvamento: garante que dados vazios não virem 'nan' no Sheets
-        df_para_salvar = dataframe.astype(str).replace(['nan', 'None', '<NA>'], '')
-        
-        conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_para_salvar)
-        
-        # Limpa o cache global para forçar a leitura do dado novo
-        st.cache_data.clear()
-        
-        # O SEGREDO ANTI-RESET: Aguarda a API do Google confirmar a escrita
-        with st.spinner(f"Sincronizando aba {aba}..."):
-            time.sleep(2.5) 
-        return True
-    except Exception as e:
-        st.error(f"Erro crítico de conexão: {e}")
-        return False
-
-# --- 4. CONEXÃO E CARREGAMENTO ---
+# --- 4. CONEXÃO E CARREGAMENTO SEM FILTROS AGRESSIVOS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=10)
-def carregar_banco_completo():
-    """Lê todas as abas e aplica a ordem alfabética no carregamento"""
-    config_abas = {
+def carregar_banco_dados():
+    # Nomes das abas exatamente como devem estar no Google Sheets
+    config = {
         "Estoque": ["Modelo"] + TAMANHOS_PADRAO,
         "Pedidos": ["Data", "Cliente", "Resumo", "Valor Total", "Status Pagto"],
         "Clientes": ["Nome", "Loja", "Cidade", "Telefone"],
         "Insumos": ["Data", "Descricao", "Valor"],
         "Lembretes": ["Data", "Nome", "Vencimento", "Valor"]
     }
-    resultado = {}
+    banco = {}
     
-    for aba, colunas in config_abas.items():
+    for aba, colunas in config.items():
         try:
+            # ttl=0 garante que ele busque o dado mais recente do Google
             df = conn.read(spreadsheet=URL_PLANILHA, worksheet=aba, ttl="0s")
-            if df is not None and not df.empty:
-                # Remove colunas e linhas totalmente vazias
-                df = df.dropna(how='all').loc[:, ~df.columns.str.contains('^Unnamed')]
-                df.columns = [str(c).strip() for c in df.columns]
-                
-                # Garante que as colunas obrigatórias existam
+            
+            if df is not None:
+                # Remove apenas colunas totalmente vazias (Unnamed)
+                df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                # Garante que as colunas existam
                 for c in colunas:
                     if c not in df.columns: df[c] = ""
                 
-                # ORDENAÇÃO ALFABÉTICA (A-Z)
+                # Ordenação A-Z para tabelas de apoio
                 if aba == "Estoque":
                     df = df.sort_values(by="Modelo", key=lambda x: x.str.lower())
                 if aba == "Clientes":
                     df = df.sort_values(by="Nome", key=lambda x: x.str.lower())
                 
-                resultado[aba] = df
+                banco[aba] = df
             else:
-                resultado[aba] = pd.DataFrame(columns=colunas)
-        except:
-            resultado[aba] = pd.DataFrame(columns=colunas)
+                banco[aba] = pd.DataFrame(columns=colunas)
+        except Exception as e:
+            st.error(f"Erro ao ler aba {aba}: {e}")
+            banco[aba] = pd.DataFrame(columns=colunas)
             
-    return resultado
+    return banco
 
-# Executa o carregamento
-db = carregar_banco_completo()
-df_est, df_ped, df_cli, df_ins, df_lem = db["Estoque"], db["Pedidos"], db["Clientes"], db["Insumos"], db["Lembretes"]
+def salvar_seguro(aba, df):
+    try:
+        # Converte para string para evitar erros de serialização
+        df_save = df.astype(str).replace(['nan', 'None'], '')
+        conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_save)
+        st.cache_data.clear()
+        time.sleep(2)
+        return True
+    except Exception as e:
+        st.error(f"Falha ao salvar: {e}")
+        return False
 
-# --- 5. BARRA LATERAL (FULL) ---
+# Inicializa o banco
+db = carregar_banco_dados()
+df_est = db["Estoque"]
+df_ped = db["Pedidos"]
+df_cli = db["Clientes"]
+df_ins = db["Insumos"]
+df_lem = db["Lembretes"]
+
+# --- 5. BARRA LATERAL (FIXADA) ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3050/3050222.png", width=80)
-    st.title("Controle Central")
-    
-    if st.button("🔄 Sincronizar Agora", key="btn_sync_global", use_container_width=True):
+    st.header("⚙️ Painel de Controle")
+    if st.button("🔄 Forçar Atualização", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
     
     st.divider()
     
-    # Lembretes de Pagamento
-    st.subheader("📌 Lembretes Ativos")
+    # LEMBRETES (Recuperados)
+    st.subheader("📅 Lembretes/Contas")
     if not df_lem.empty:
-        for i, r in df_lem.iterrows():
-            st.warning(f"**{r['Nome']}**\n📅 {r['Vencimento']}\n💰 R$ {r['Valor']}")
-    
+        # Filtra apenas linhas que possuem nome preenchido
+        lem_ativos = df_lem[df_lem['Nome'] != ""]
+        if not lem_ativos.empty:
+            for i, r in lem_ativos.iterrows():
+                st.info(f"**{r['Nome']}**\nVencto: {r['Vencimento']}\nValor: R$ {r['Valor']}")
+        else:
+            st.write("Nenhum lembrete com nome.")
+    else:
+        st.write("Lista de lembretes vazia.")
+
     st.divider()
     
-    # Alertas de Estoque Baixo (Minimizado)
-    with st.expander("🚨 Avisos de Estoque"):
-        alertas = []
+    with st.expander("🚨 Alertas de Estoque"):
+        avisos = []
         for _, row in df_est.iterrows():
             for t in TAMANHOS_PADRAO:
-                qtd = converter_para_numero(row[t])
-                if 0 < qtd < 5:
-                    alertas.append(f"{row['Modelo']} ({t}): {int(qtd)} par(es)")
-        
-        if alertas:
-            for a in alertas: st.write(f"• {a}")
-        else:
-            st.write("Todos os itens abastecidos.")
-
-    # Clientes com Pendências (Minimizado)
-    with st.expander("⚠️ Pendências Financeiras"):
-        if not df_ped.empty:
-            pendentes = df_ped[df_ped['Status Pagto'].str.lower().isin(['pendente', 'metade'])]
-            if not pendentes.empty:
-                for _, r in pendentes.iterrows():
-                    st.error(f"**{r['Cliente']}**\nValor: R$ {r['Valor Total']}")
-            else:
-                st.write("Nenhuma pendência encontrada.")
+                q = converter_para_numero(row[t])
+                if 0 < q < 5: avisos.append(f"{row['Modelo']} ({t}): {int(q)} unid.")
+        if avisos:
+            for a in avisos: st.warning(a)
+        else: st.write("Estoque abastecido.")
 
 # --- 6. INTERFACE PRINCIPAL ---
-tabs = st.tabs(["📊 Estoque", "✨ Cadastrar Modelo", "🛒 Nova Venda", "👥 Clientes", "🧾 Histórico"])
+tabs = st.tabs(["📊 Estoque", "✨ Cadastro", "🛒 Vendas", "👥 Clientes", "🧾 Histórico (Pedidos)"])
 
-with tabs[0]: # ABA ESTOQUE
-    st.subheader("Inventário Consolidado (A-Z)")
-    search = st.text_input("Filtrar modelo...", key="search_est").lower()
-    
-    df_f = df_est[df_est['Modelo'].str.lower().str.contains(search)] if search else df_est
-    st.dataframe(df_f, hide_index=True, use_container_width=True)
-    
-    with st.expander("📦 Registrar Entrada de Lote"):
-        if 'lote_cache' not in st.session_state: st.session_state.lote_cache = []
-        
-        c1, c2, c3 = st.columns(3)
-        mod_lista = sorted(df_est['Modelo'].unique(), key=str.lower) if not df_est.empty else []
-        m_e = c1.selectbox("Modelo", mod_lista, key="sel_m_e")
-        t_e = c2.selectbox("Tamanho", TAMANHOS_PADRAO, key="sel_t_e")
-        q_e = c3.number_input("Qtd", min_value=1, key="num_q_e")
-        
-        if st.button("Adicionar ao Lote", key="btn_add_lote"):
-            st.session_state.lote_cache.append({"Modelo": m_e, "Tam": t_e, "Qtd": q_e})
+with tabs[0]: # ESTOQUE
+    st.subheader("📦 Inventário Atual (Ordem A-Z)")
+    st.dataframe(df_est, hide_index=True, use_container_width=True)
+
+with tabs[1]: # CADASTRO
+    st.subheader("✨ Novo Modelo")
+    with st.form("f_novo"):
+        n_m = st.text_input("Nome do Chinelo")
+        if st.form_submit_button("Salvar"):
+            if n_m and n_m not in df_est['Modelo'].values:
+                nova_l = {"Modelo": n_m}
+                nova_l.update({t: 0 for t in TAMANHOS_PADRAO})
+                if salvar_seguro("Estoque", pd.concat([df_est, pd.DataFrame([nova_l])], ignore_index=True)):
+                    st.success("Salvo!"); st.rerun()
+
+with tabs[2]: # VENDAS
+    st.subheader("🛒 Registrar Venda")
+    col1, col2 = st.columns(2)
+    with col1:
+        c_l = sorted(df_cli['Nome'].unique()) if not df_cli.empty else []
+        m_l = sorted(df_est['Modelo'].unique()) if not df_est.empty else []
+        v_cli = st.selectbox("Cliente", c_l + ["Avulso"])
+        v_mod = st.selectbox("Modelo", m_l)
+        v_tam = st.selectbox("Tam", TAMANHOS_PADRAO)
+        v_pre = st.number_input("Preço Unitário", min_value=0.0)
+        v_qtd = st.number_input("Quantidade", min_value=1)
+        v_st = st.selectbox("Status", ["Pago", "Pendente", "Metade"])
+        if st.button("Adicionar"):
+            if 'cart' not in st.session_state: st.session_state.cart = []
+            st.session_state.cart.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Pre": v_pre})
             st.rerun()
-            
-        if st.session_state.lote_cache:
-            st.table(st.session_state.lote_cache)
-            val_compra = st.number_input("Custo Total da Compra (R$)", min_value=0.0, key="val_compra_lote")
-            if st.button("Confirmar Entrada no Estoque", type="primary", key="btn_save_lote"):
-                df_novo_est = df_est.copy()
-                for item in st.session_state.lote_cache:
-                    idx = df_novo_est.index[df_novo_est['Modelo'] == item['Modelo']][0]
-                    atual = converter_para_numero(df_novo_est.at[idx, item['Tam']])
-                    df_novo_est.at[idx, item['Tam']] = int(atual + item['Qtd'])
-                
-                if salvar_dados_no_google("Estoque", df_novo_est):
-                    # Gera log no extrato
-                    log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": "FORNECEDOR", "Resumo": "Entrada de Lote", "Valor Total": val_compra, "Status Pagto": "Pago"}])
-                    salvar_dados_no_google("Pedidos", pd.concat([df_ped, log], ignore_index=True))
-                    st.session_state.lote_cache = []
-                    st.success("Estoque sincronizado com sucesso!")
-                    st.rerun()
-
-with tabs[1]: # ABA CADASTRO
-    st.subheader("Adicionar Novo Chinelo")
-    with st.form("form_novo_chinelo", clear_on_submit=True):
-        nome_chinelo = st.text_input("Nome do Modelo")
-        if st.form_submit_button("Finalizar Cadastro"):
-            if nome_chinelo and nome_chinelo not in df_est['Modelo'].values:
-                nova_linha = {"Modelo": nome_chinelo}
-                nova_linha.update({t: 0 for t in TAMANHOS_PADRAO})
-                if salvar_dados_no_google("Estoque", pd.concat([df_est, pd.DataFrame([nova_linha])], ignore_index=True)):
-                    st.success(f"Modelo {nome_chinelo} adicionado!")
-                    st.rerun()
-            else:
-                st.error("Nome inválido ou modelo já existe.")
-
-with tabs[2]: # ABA VENDAS
-    st.subheader("Registrar Pedido")
-    c_v1, c_v2 = st.columns(2)
-    
-    with c_v1:
-        # Puxa listas ordenadas
-        c_lista = sorted(df_cli['Nome'].unique(), key=str.lower) if not df_cli.empty else []
-        m_lista = sorted(df_est['Modelo'].unique(), key=str.lower) if not df_est.empty else []
-        
-        v_cli = st.selectbox("Cliente", c_lista + ["Consumidor Avulso"], key="v_sel_cli")
-        v_mod = st.selectbox("Modelo", m_lista, key="v_sel_mod")
-        v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO, key="v_sel_tam")
-        v_pre = st.number_input("Preço Unitário (R$)", min_value=0.0, key="v_num_pre")
-        v_qtd = st.number_input("Qtd", min_value=1, key="v_num_qtd")
-        v_status = st.selectbox("Pagamento", ["Pago", "Pendente", "Metade"], key="v_sel_stat")
-        
-        if st.button("Adicionar ao Carrinho", key="v_btn_add"):
-            if 'cart_v8' not in st.session_state: st.session_state.cart_v8 = []
-            st.session_state.cart_v8.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Pre": v_pre})
-            st.rerun()
-
-    with c_v2:
-        if 'cart_v8' in st.session_state and st.session_state.cart_v8:
-            st.write("🛒 **Carrinho de Venda**")
-            total_venda = 0
-            resumo_venda = []
-            for it in st.session_state.cart_v8:
-                st.write(f"• {it['Mod']} ({it['Tam']}) x{it['Qtd']}")
-                total_venda += (it['Pre'] * it['Qtd'])
-                resumo_venda.append(f"{it['Mod']}({it['Tam']}x{it['Qtd']})")
-            
-            st.write(f"--- \n**Total: R$ {total_venda:.2f}**")
-            
-            if st.button("Finalizar Venda", type="primary", key="v_btn_fin"):
+    with col2:
+        if 'cart' in st.session_state and st.session_state.cart:
+            total, res = 0, []
+            for i in st.session_state.cart:
+                st.write(f"• {i['Mod']} ({i['Tam']}) x{i['Qtd']}")
+                total += (i['Pre'] * i['Qtd'])
+                res.append(f"{i['Mod']}({i['Tam']}x{i['Qtd']})")
+            if st.button("Finalizar Venda", type="primary"):
                 df_e_atu = df_est.copy()
-                for it in st.session_state.cart_v8:
-                    idx = df_e_atu.index[df_e_atu['Modelo'] == it['Mod']][0]
-                    atu = converter_para_numero(df_e_atu.at[idx, it['Tam']])
-                    df_e_atu.at[idx, it['Tam']] = int(atu - it['Qtd'])
-                
-                if salvar_dados_no_google("Estoque", df_e_atu):
-                    v_log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": " | ".join(resumo_venda), "Valor Total": total_venda, "Status Pagto": v_status}])
-                    salvar_dados_no_google("Pedidos", pd.concat([df_ped, v_log], ignore_index=True))
-                    st.session_state.cart_v8 = []
-                    st.success("Venda registrada!")
-                    st.rerun()
+                idx = df_e_atu.index[df_e_atu['Modelo'] == st.session_state.cart[0]['Mod']][0]
+                # Baixa estoque
+                for i in st.session_state.cart:
+                    atu = converter_para_numero(df_e_atu.at[idx, i['Tam']])
+                    df_e_atu.at[idx, i['Tam']] = int(atu - i['Qtd'])
+                if salvar_seguro("Estoque", df_e_atu):
+                    log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": " | ".join(res), "Valor Total": total, "Status Pagto": v_st}])
+                    salvar_seguro("Pedidos", pd.concat([df_ped, log], ignore_index=True))
+                    st.session_state.cart = []
+                    st.success("Venda Concluída!"); st.rerun()
 
-with tabs[4]: # ABA EXTRATO
-    st.subheader("Histórico de Movimentações")
+with tabs[4]: # HISTÓRICO (PEDIDOS)
+    st.subheader("🧾 Histórico de Vendas e Entradas")
     if not df_ped.empty:
-        # Exibe do mais novo para o mais antigo
-        for idx, row in df_ped.iloc[::-1].iterrows():
-            with st.container(border=True):
-                col_ex1, col_ex2 = st.columns([0.8, 0.2])
-                col_ex1.write(f"📅 **{row['Data']}** | 👤 {row['Cliente']} | 💰 **R$ {converter_para_numero(row['Valor Total']):.2f}**")
-                col_ex1.caption(f"Conteúdo: {row['Resumo']} | Status: {row['Status Pagto']}")
-                if col_ex2.button("Excluir", key=f"del_ped_{idx}"):
-                    if salvar_dados_no_google("Pedidos", df_ped.drop(idx)):
-                        st.rerun()
+        # Limpeza para garantir que linhas vazias do Google Sheets não apareçam como cards brancos
+        df_ped_limpo = df_ped.dropna(subset=['Data', 'Cliente', 'Resumo'], how='all')
+        
+        if not df_ped_limpo.empty:
+            for idx, r in df_ped_limpo.iloc[::-1].iterrows():
+                # Só mostra se houver conteúdo básico
+                if str(r['Cliente']).strip() != "":
+                    with st.container(border=True):
+                        c1, c2 = st.columns([0.8, 0.2])
+                        c1.write(f"📅 **{r['Data']}** | 👤 {r['Cliente']}")
+                        c1.write(f"📝 {r['Resumo']}")
+                        c1.write(f"💰 **R$ {converter_para_numero(r['Valor Total']):.2f}** | Status: {r['Status Pagto']}")
+                        if c2.button("Excluir", key=f"del_{idx}"):
+                            if salvar_seguro("Pedidos", df_ped.drop(idx)):
+                                st.rerun()
+        else:
+            st.info("O histórico está vazio na planilha.")
+    else:
+        st.info("Nenhum dado encontrado na aba 'Pedidos'.")
+
+# ABA LEMBRETES (Para você gerenciar os que sumiram)
+with tabs[3]: # Reaproveitando aba de clientes para mostrar a tabela de lembretes
+    st.divider()
+    st.subheader("📅 Gerenciar Todos os Lembretes")
+    with st.form("f_lem"):
+        ln = st.text_input("Nome da Conta/Lembrete")
+        lv = st.text_input("Data Vencimento")
+        lq = st.number_input("Valor R$")
+        if st.form_submit_button("Adicionar Lembrete"):
+            novo_l = pd.DataFrame([{"Data": get_data_hora(), "Nome": ln, "Vencimento": lv, "Valor": lq}])
+            if salvar_seguro("Lembretes", pd.concat([df_lem, novo_l], ignore_index=True)):
+                st.rerun()
+    st.dataframe(df_lem, use_container_width=True)

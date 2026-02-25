@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd as pd
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 import time
@@ -111,13 +111,13 @@ with st.sidebar:
     
     st.divider()
     
-    # Alertas de Estoque Baixo
+    # Alertas de Estoque Baixo (CORRIGIDO: Agora detecta 0/Zerados)
     with st.expander("🚨 Avisos de Estoque"):
         alertas = []
         for _, row in df_est.iterrows():
             for t in TAMANHOS_PADRAO:
                 qtd = converter_para_numero(row[t])
-                if 0 < qtd < 5:
+                if qtd < 5: # Detecta de 0 até 4 unidades
                     alertas.append(f"{row['Modelo']} ({t}): {int(qtd)} unid.")
         if alertas:
             for a in alertas: st.error(a)
@@ -186,14 +186,11 @@ with tabs[1]: # ABA VENDAS (COMPLETA COM BAIXA DE ESTOQUE)
                 df_est_atu = df_est.copy()
                 try:
                     for it in st.session_state.cart_v85:
-                        # Busca o índice do modelo
                         idx = df_est_atu.index[df_est_atu['Modelo'].astype(str) == str(it['Mod'])][0]
-                        # Calcula nova quantidade
                         val_atual = converter_para_numero(df_est_atu.at[idx, it['Tam']])
                         df_est_atu.at[idx, it['Tam']] = int(val_atual - it['Qtd'])
                     
                     if salvar_dados_no_google("Estoque", df_est_atu):
-                        # Registra no histórico
                         log_venda = pd.DataFrame([{
                             "Data": get_data_hora(),
                             "Cliente": v_cli,
@@ -211,7 +208,6 @@ with tabs[1]: # ABA VENDAS (COMPLETA COM BAIXA DE ESTOQUE)
 with tabs[3]: # ABA HISTÓRICO
     st.subheader("Histórico de Movimentações")
     if not df_ped.empty:
-        # Filtra linhas vazias
         df_ped_show = df_ped[df_ped['Cliente'].astype(str).str.strip() != ""]
         if not df_ped_show.empty:
             for idx, r in df_ped_show.iloc[::-1].iterrows():
@@ -223,8 +219,6 @@ with tabs[3]: # ABA HISTÓRICO
                     if c_h2.button("Excluir", key=f"del_h_{idx}"):
                         if salvar_dados_no_google("Pedidos", df_ped.drop(idx)):
                             st.rerun()
-        else: st.info("Histórico vazio.")
-    else: st.info("Nenhum dado na aba Pedidos.")
 
 with tabs[4]: # ABA LEMBRETES
     st.subheader("Gerenciar Lembretes e Contas")
@@ -237,9 +231,6 @@ with tabs[4]: # ABA LEMBRETES
             nova_l = pd.DataFrame([{"Data": get_data_hora(), "Nome": l_nome, "Vencimento": l_venc, "Valor": l_valor}])
             if salvar_dados_no_google("Lembretes", pd.concat([df_lem, nova_l], ignore_index=True)):
                 st.success("Lembrete salvo!"); st.rerun()
-    
-    st.divider()
-    st.write("📋 **Lista de Lembretes Gravados**")
     st.dataframe(df_lem, use_container_width=True, hide_index=True)
 
 with tabs[2]: # ABA CLIENTES

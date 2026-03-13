@@ -109,11 +109,18 @@ with st.sidebar:
 # --- 7. ABAS ---
 tabs = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "🧾 Histórico", "📅 Lembretes", "📦 Aquisição Chinelas", "🛠️ Insumos"])
 
-with tabs[0]: # ESTOQUE
-    st.subheader("📋 Inventário (A-Z)")
-    edit_est = st.data_editor(df_est, hide_index=True, use_container_width=True, key="ed_est_v103")
+with tabs[0]: # ESTOQUE + BUSCA
+    st.subheader("📋 Inventário e Cadastro")
+    
+    # Função de busca adicionada
+    busca = st.text_input("🔍 Buscar Modelo no Estoque", "").lower()
+    df_filtrado = df_est[df_est['Modelo'].astype(str).str.lower().str.contains(busca)] if busca else df_est
+    
+    edit_est = st.data_editor(df_filtrado, hide_index=True, use_container_width=True, key="ed_est_v104")
     if st.button("Salvar Alterações no Estoque"):
-        salvar_dados_no_google("Estoque", edit_est); st.rerun()
+        # Mescla as alterações de volta ao dataframe original antes de salvar
+        df_est.update(edit_est)
+        salvar_dados_no_google("Estoque", df_est); st.rerun()
     
     st.divider()
     with st.expander("✨ Cadastrar Novo Modelo"):
@@ -164,7 +171,7 @@ with tabs[1]: # VENDAS
 
 with tabs[2]: # CLIENTES
     st.subheader("👥 Cadastro e Edição de Clientes")
-    edit_cli = st.data_editor(df_cli, hide_index=True, use_container_width=True, key="ed_cli_v103")
+    edit_cli = st.data_editor(df_cli, hide_index=True, use_container_width=True, key="ed_cli_v104")
     if st.button("Salvar Alterações de Clientes"):
         salvar_dados_no_google("Clientes", edit_cli); st.rerun()
     
@@ -193,7 +200,7 @@ with tabs[3]: # HISTÓRICO
 with tabs[4]: # LEMBRETES
     st.subheader("📅 Gestão de Lembretes")
     st.dataframe(df_lem, use_container_width=True, hide_index=True)
-    with st.form("f_lem_v103"):
+    with st.form("f_lem_v104"):
         cat, nome, vencto, valor = st.selectbox("Categoria", ["Conta", "Cliente"]), st.text_input("Descrição"), st.text_input("Vencimento"), st.number_input("Valor", min_value=0.0)
         if st.form_submit_button("Agendar Lembrete"):
             nl = pd.DataFrame([{"Data": get_data_hora(), "Nome": nome, "Vencimento": vencto, "Valor": valor, "Categoria": cat, "Status": "Pendente"}])
@@ -227,7 +234,7 @@ with tabs[5]: # AQUISIÇÃO CHINELAS
 
 with tabs[6]: # INSUMOS
     st.subheader("🛠️ Insumos e Gastos Gerais")
-    with st.form("f_ins_v103"):
+    with st.form("f_ins_v104"):
         desc, val = st.text_input("Descrição do Gasto"), st.number_input("Valor R$", min_value=0.0)
         if st.form_submit_button("Registrar Insumo"):
             log_i = pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc, "Valor": val}])

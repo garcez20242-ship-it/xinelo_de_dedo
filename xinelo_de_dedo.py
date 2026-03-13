@@ -113,7 +113,7 @@ with tabs[0]: # ESTOQUE
     st.subheader("📋 Inventário e Cadastro")
     busca = st.text_input("🔍 Buscar Modelo no Estoque", "").lower()
     df_filtrado = df_est[df_est['Modelo'].astype(str).str.lower().str.contains(busca)] if busca else df_est
-    edit_est = st.data_editor(df_filtrado, hide_index=True, use_container_width=True, key="ed_est_v105")
+    edit_est = st.data_editor(df_filtrado, hide_index=True, use_container_width=True, key="ed_est_v107")
     if st.button("Salvar Alterações no Estoque"):
         df_est.update(edit_est)
         salvar_dados_no_google("Estoque", df_est); st.rerun()
@@ -126,7 +126,7 @@ with tabs[0]: # ESTOQUE
                     nova_l = pd.DataFrame([{"Modelo": n_m, **{t: 0 for t in TAMANHOS_PADRAO}}])
                     salvar_dados_no_google("Estoque", pd.concat([df_est, nova_l], ignore_index=True)); st.rerun()
 
-with tabs[1]: # VENDAS (ATUALIZADA COM FORMA PAGTO E LEMBRETE)
+with tabs[1]: # VENDAS
     st.subheader("🛒 Registro de Vendas")
     c1, c2 = st.columns(2)
     with c1:
@@ -151,30 +151,24 @@ with tabs[1]: # VENDAS (ATUALIZADA COM FORMA PAGTO E LEMBRETE)
                 st.write(f"• {i['Mod']} ({i['Tam']}) x{i['Qtd']} = R${sub:.2f}")
                 res.append(f"{i['Mod']}({i['Tam']}x{i['Qtd']})")
             st.write(f"### Total: R$ {tot:.2f}")
-            
-            # Forma de pagamento e status mostrados apenas no final da venda
             v_pag = st.selectbox("Forma de Pagamento", ["Pix", "Dinheiro", "Cartão", "Boleto", "Prazo/Outros"])
             v_status = st.selectbox("Status do Recebimento", ["Pago", "Pendente"])
-            
             if st.button("Finalizar Venda", type="primary"):
                 df_e = df_est.copy()
                 for i in st.session_state.cv:
                     idx = df_e.index[df_e['Modelo'] == i['Mod']][0]
                     df_e.at[idx, i['Tam']] = int(converter_para_numero(df_e.at[idx, i['Tam']]) - i['Qtd'])
                 salvar_dados_no_google("Estoque", df_e)
-                
-                # Se estiver pendente, cria lembrete de cliente
                 if v_status == "Pendente":
                     nl = pd.DataFrame([{"Data": get_data_hora(), "Nome": v_cli, "Vencimento": "A definir", "Valor": tot, "Categoria": "Cliente", "Status": "Pendente"}])
                     salvar_dados_no_google("Lembretes", pd.concat([df_lem, nl], ignore_index=True))
-                
                 log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": f"[{v_pag}] VENDA: "+" | ".join(res), "Valor Total": tot, "Status Pagto": v_status}])
                 salvar_dados_no_google("Pedidos", pd.concat([df_ped, log], ignore_index=True))
                 st.session_state.cv = []; st.rerun()
 
-with tabs[2]: # CLIENTES (SOMENTE UM ENDEREÇO, SEM PAGAMENTO)
+with tabs[2]: # CLIENTES
     st.subheader("👥 Cadastro e Edição de Clientes")
-    edit_cli = st.data_editor(df_cli, hide_index=True, use_container_width=True, key="ed_cli_v105")
+    edit_cli = st.data_editor(df_cli, hide_index=True, use_container_width=True, key="ed_cli_v107")
     if st.button("Salvar Alterações de Clientes"):
         salvar_dados_no_google("Clientes", edit_cli); st.rerun()
     with st.expander("➕ Adicionar Novo Cliente"):
@@ -198,14 +192,19 @@ with tabs[3]: # HISTÓRICO
                 if c_h2.button("🗑️", key=f"del_{idx}"):
                     salvar_dados_no_google("Pedidos", df_ped.drop(idx)); st.rerun()
 
-with tabs[4]: # LEMBRETES
+with tabs[4]: # LEMBRETES (EDITÁVEL v10.7)
     st.subheader("📅 Gestão de Lembretes")
-    st.dataframe(df_lem, use_container_width=True, hide_index=True)
-    with st.form("f_lem_v105"):
-        cat, nome, vencto, valor = st.selectbox("Categoria", ["Conta", "Cliente"]), st.text_input("Descrição/Cliente"), st.text_input("Vencimento"), st.number_input("Valor", min_value=0.0)
-        if st.form_submit_button("Agendar Lembrete"):
-            nl = pd.DataFrame([{"Data": get_data_hora(), "Nome": nome, "Vencimento": vencto, "Valor": valor, "Categoria": cat, "Status": "Pendente"}])
-            salvar_dados_no_google("Lembretes", pd.concat([df_lem, nl], ignore_index=True)); st.rerun()
+    edit_lem = st.data_editor(df_lem, hide_index=True, use_container_width=True, key="ed_lem_v107")
+    if st.button("Salvar Alterações de Lembretes"):
+        salvar_dados_no_google("Lembretes", edit_lem); st.rerun()
+    
+    st.divider()
+    with st.expander("➕ Novo Lembrete Manual"):
+        with st.form("f_lem_v107"):
+            cat, nome, vencto, valor = st.selectbox("Categoria", ["Conta", "Cliente"]), st.text_input("Descrição/Cliente"), st.text_input("Vencimento"), st.number_input("Valor", min_value=0.0)
+            if st.form_submit_button("Agendar Lembrete"):
+                nl = pd.DataFrame([{"Data": get_data_hora(), "Nome": nome, "Vencimento": vencto, "Valor": valor, "Categoria": cat, "Status": "Pendente"}])
+                salvar_dados_no_google("Lembretes", pd.concat([df_lem, nl], ignore_index=True)); st.rerun()
 
 with tabs[5]: # AQUISIÇÃO CHINELAS
     st.subheader("📦 Aquisição de Chinelas (Entrada)")
@@ -235,7 +234,7 @@ with tabs[5]: # AQUISIÇÃO CHINELAS
 
 with tabs[6]: # INSUMOS
     st.subheader("🛠️ Insumos e Gastos Gerais")
-    with st.form("f_ins_v105"):
+    with st.form("f_ins_v107"):
         desc, val = st.text_input("Descrição"), st.number_input("Valor R$", min_value=0.0)
         if st.form_submit_button("Registrar Insumo"):
             log_i = pd.DataFrame([{"Data": get_data_hora(), "Descricao": desc, "Valor": val}])

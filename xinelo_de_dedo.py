@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 import time
 
-# --- 1. CONFIGURAÇÃO (IDENTIDADE DO APP) ---
-st.set_page_config(page_title="Gestão Master v8.8", layout="wide", page_icon="🩴")
+# --- 1. CONFIGURAÇÃO ---
+st.set_page_config(page_title="Gestão Master v8.9", layout="wide", page_icon="🩴")
 
 # --- 2. CONSTANTES ---
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
@@ -26,7 +26,6 @@ def converter_para_numero(valor):
         return 0.0
 
 def salvar_dados_no_google(aba, dataframe):
-    """Função mestre: mantém a barreira de 2.5s para evitar resets do Streamlit"""
     try:
         df_para_salvar = dataframe.astype(str).replace(['nan', 'None', '<NA>'], '')
         conn.update(spreadsheet=URL_PLANILHA, worksheet=aba, data=df_para_salvar)
@@ -38,7 +37,7 @@ def salvar_dados_no_google(aba, dataframe):
         st.error(f"Erro na conexão: {e}")
         return False
 
-# --- 4. CARREGAMENTO E ORDENAÇÃO A-Z ---
+# --- 4. CARREGAMENTO ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=10)
@@ -47,6 +46,7 @@ def carregar_banco_completo():
         "Estoque": ["Modelo"] + TAMANHOS_PADRAO,
         "Pedidos": ["Data", "Cliente", "Resumo", "Valor Total", "Status Pagto"],
         "Clientes": ["Nome", "Loja", "Cidade", "Telefone"],
+        "Insumos": ["Data", "Descricao", "Valor"],
         "Lembretes": ["Data", "Nome", "Vencimento", "Valor", "Categoria"]
     }
     resultado = {}
@@ -58,15 +58,9 @@ def carregar_banco_completo():
                 df.columns = [str(c).strip() for c in df.columns]
                 for c in colunas:
                     if c not in df.columns: df[c] = ""
-                
-                # ORDENAÇÃO ALFABÉTICA PROTEGIDA
                 if aba == "Estoque" and not df.empty:
                     df["Modelo"] = df["Modelo"].astype(str)
                     df = df.sort_values(by="Modelo", key=lambda x: x.str.lower())
-                if aba == "Clientes" and not df.empty:
-                    df["Nome"] = df["Nome"].astype(str)
-                    df = df.sort_values(by="Nome", key=lambda x: x.str.lower())
-                
                 resultado[aba] = df
             else:
                 resultado[aba] = pd.DataFrame(columns=colunas)
@@ -75,62 +69,45 @@ def carregar_banco_completo():
     return resultado
 
 db = carregar_banco_completo()
-df_est, df_ped, df_cli, df_lem = db["Estoque"], db["Pedidos"], db["Clientes"], db["Lembretes"]
+df_est, df_ped, df_cli, df_ins, df_lem = db["Estoque"], db["Pedidos"], db["Clientes"], db["Insumos"], db["Lembretes"]
 
 # --- 5. CABEÇALHO ---
-st.title("🩴 Sistema de Gestão Xinelo de Dedo")
-st.caption(f"Status do Sistema: Online | Atualizado em: {get_data_hora()}")
+st.title("🩴 Sistema de Gestão Master")
 st.divider()
 
-# --- 6. BARRA LATERAL (FILTROS DE CATEGORIA) ---
+# --- 6. BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Painel de Controle")
-    if st.button("🔄 Forçar Sincronização", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    st.header("⚙️ Sistema de Gestão - Xinelo de Dedo")
+    if st.button("🔄 Sincronizar Agora", use_container_width=True):
+        st.cache_data.clear(); st.rerun()
     
     st.divider()
     
-    # Lembretes de Contas
+    # Lembretes (Contas)
     st.subheader("📌 Contas a Pagar")
     contas = df_lem[df_lem['Categoria'].astype(str).str.lower() == 'conta']
     if not contas.empty:
         for _, r in contas.iterrows():
-            if str(r['Nome']).strip():
-                st.warning(f"**{r['Nome']}**\n📅 {r['Vencimento']}\n💰 R$ {r['Valor']}")
+            if str(r['Nome']).strip(): st.warning(f"**{r['Nome']}**\n📅 {r['Vencimento']}\n💰 R$ {r['Valor']}")
     
-    st.divider()
-    
-    # Pendências de Clientes (Baseado nos Lembretes)
+    # Pendências (Clientes)
     st.subheader("👤 Pendências de Clientes")
     pends_cli = df_lem[df_lem['Categoria'].astype(str).str.lower() == 'cliente']
     if not pends_cli.empty:
         for _, r in pends_cli.iterrows():
-            if str(r['Nome']).strip():
-                st.error(f"**{r['Nome']}**\n💰 R$ {r['Valor']}\nVencto: {r['Vencimento']}")
+            if str(r['Nome']).strip(): st.error(f"**{r['Nome']}**\n💰 R$ {r['Valor']}")
 
-    st.divider()
-    
-    with st.expander("🚨 Estoque Baixo (< 5)"):
-        alertas = []
+    with st.expander("🚨 Estoque Baixo"):
         for _, row in df_est.iterrows():
             for t in TAMANHOS_PADRAO:
-                qtd = converter_para_numero(row[t])
-                if qtd < 5: alertas.append(f"{row['Modelo']} ({t}): {int(qtd)}")
-        for a in alertas: st.write(f"• {a}")
+                if converter_para_numero(row[t]) < 5: st.write(f"• {row['Modelo']} ({t})")
 
-# --- 7. ABAS PRINCIPAIS ---
-tabs = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "🧾 Histórico", "📅 Lembretes"])
+# --- 7. ABAS ---
+tabs = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "🧾 Histórico", "📅 Lembretes", "📦 Aquisições"])
 
 with tabs[0]: # ESTOQUE
-    st.subheader("📋 Inventário Completo (A-Z)")
+    st.subheader("📋 Inventário")
     st.dataframe(df_est, hide_index=True, use_container_width=True)
-    with st.expander("✨ Cadastrar Novo Modelo"):
-        with st.form("f_mod_v88"):
-            n_m = st.text_input("Nome do Modelo")
-            if st.form_submit_button("Salvar Modelo"):
-                nova_l = pd.DataFrame([{"Modelo": n_m, **{t: 0 for t in TAMANHOS_PADRAO}}])
-                if salvar_dados_no_google("Estoque", pd.concat([df_est, nova_l], ignore_index=True)): st.rerun()
 
 with tabs[1]: # VENDAS
     st.subheader("🛒 Registro de Vendas")
@@ -139,69 +116,72 @@ with tabs[1]: # VENDAS
         v_cli = st.selectbox("Cliente", sorted(df_cli['Nome'].astype(str).unique()) + ["Avulso"])
         v_mod = st.selectbox("Modelo", sorted(df_est['Modelo'].astype(str).unique()))
         v_tam = st.selectbox("Tamanho", TAMANHOS_PADRAO)
-        v_pre = st.number_input("Preço Unitário", min_value=0.0)
+        v_pre = st.number_input("Preço", min_value=0.0)
         v_qtd = st.number_input("Qtd", min_value=1)
-        if st.button("Adicionar Item"):
+        if st.button("Adicionar"):
             if 'cart' not in st.session_state: st.session_state.cart = []
             st.session_state.cart.append({"Mod": v_mod, "Tam": v_tam, "Qtd": v_qtd, "Pre": v_pre})
-            st.rerun()
     with c2:
         if 'cart' in st.session_state and st.session_state.cart:
-            total, resumo = 0.0, []
+            total, res = 0.0, []
             for it in st.session_state.cart:
-                st.write(f"• {it['Mod']} ({it['Tam']}) x{it['Qtd']}")
+                st.write(f"• {it['Mod']} x{it['Qtd']}")
                 total += (it['Pre'] * it['Qtd'])
-                resumo.append(f"{it['Mod']}({it['Tam']}x{it['Qtd']})")
-            if st.button("Finalizar Pedido", type="primary"):
-                df_est_atu = df_est.copy()
-                for it in st.session_state.cart:
-                    idx = df_est_atu.index[df_est_atu['Modelo'] == it['Mod']][0]
-                    df_est_atu.at[idx, it['Tam']] = int(converter_para_numero(df_est_atu.at[idx, it['Tam']]) - it['Qtd'])
-                if salvar_dados_no_google("Estoque", df_est_atu):
-                    log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": " | ".join(resumo), "Valor Total": total, "Status Pagto": "Pago"}])
+                res.append(f"{it['Mod']}({it['Tam']}x{it['Qtd']})")
+            if st.button("Finalizar Venda"):
+                df_e = df_est.copy()
+                for i in st.session_state.cart:
+                    idx = df_e.index[df_e['Modelo'] == i['Mod']][0]
+                    df_e.at[idx, i['Tam']] = int(converter_para_numero(df_e.at[idx, i['Tam']]) - i['Qtd'])
+                if salvar_dados_no_google("Estoque", df_e):
+                    log = pd.DataFrame([{"Data": get_data_hora(), "Cliente": v_cli, "Resumo": " | ".join(res), "Valor Total": total, "Status Pagto": "Pago"}])
                     salvar_dados_no_google("Pedidos", pd.concat([df_ped, log], ignore_index=True))
-                    st.session_state.cart = []
-                    st.rerun()
+                    st.session_state.cart = []; st.rerun()
 
-with tabs[2]: # CLIENTES (RESTAURADA)
+with tabs[2]: # CLIENTES
     st.subheader("👥 Cadastro de Clientes")
-    with st.form("f_cli_v88", clear_on_submit=True):
-        c_n = st.text_input("Nome ou Loja")
-        c_c = st.text_input("Cidade")
-        c_t = st.text_input("Telefone")
-        if st.form_submit_button("Cadastrar Cliente"):
-            nova_c = pd.DataFrame([{"Nome": c_n, "Loja": c_n, "Cidade": c_c, "Telefone": c_t}])
-            if salvar_dados_no_google("Clientes", pd.concat([df_cli, nova_c], ignore_index=True)):
-                st.success("Cliente cadastrado!"); st.rerun()
-    st.divider()
+    with st.form("f_cli"):
+        cn, cc, ct = st.text_input("Nome"), st.text_input("Cidade"), st.text_input("Telefone")
+        if st.form_submit_button("Salvar"):
+            nc = pd.DataFrame([{"Nome": cn, "Loja": cn, "Cidade": cc, "Telefone": ct}])
+            if salvar_dados_no_google("Clientes", pd.concat([df_cli, nc], ignore_index=True)): st.rerun()
     st.dataframe(df_cli, use_container_width=True, hide_index=True)
 
 with tabs[3]: # HISTÓRICO
-    st.subheader("🧾 Histórico de Pedidos")
+    st.subheader("🧾 Histórico")
     if not df_ped.empty:
-        # Exibe tudo que tenha Cliente ou Resumo preenchido
         df_h = df_ped[df_ped['Cliente'].astype(str).str.strip() != ""]
-        if not df_h.empty:
-            for idx, r in df_h.iloc[::-1].iterrows():
-                with st.container(border=True):
-                    c_h1, c_h2 = st.columns([0.8, 0.2])
-                    c_h1.write(f"📅 **{r['Data']}** | 👤 {r['Cliente']} | 💰 **R$ {converter_para_numero(r['Valor Total']):.2f}**")
-                    c_h1.caption(f"Resumo: {r['Resumo']} | Pagamento: {r['Status Pagto']}")
-                    if c_h2.button("Excluir", key=f"del_v88_{idx}"):
-                        if salvar_dados_no_google("Pedidos", df_ped.drop(idx)): st.rerun()
-        else: st.info("Nenhum pedido registrado no histórico.")
-    else: st.info("Aba de Pedidos está vazia.")
+        for idx, r in df_h.iloc[::-1].iterrows():
+            with st.container(border=True):
+                c_h1, c_h2 = st.columns([0.8, 0.2])
+                c_h1.write(f"📅 **{r['Data']}** | 👤 {r['Cliente']} | 💰 **R$ {converter_para_numero(r['Valor Total']):.2f}**")
+                c_h1.caption(f"{r['Resumo']}")
+                if c_h2.button("Excluir", key=f"del_{idx}"):
+                    if salvar_dados_no_google("Pedidos", df_ped.drop(idx)): st.rerun()
 
 with tabs[4]: # LEMBRETES
-    st.subheader("📅 Gestão de Lembretes e Pendências")
-    with st.form("f_lem_v88", clear_on_submit=True):
-        col_l1, col_l2 = st.columns(2)
-        l_cat = col_l1.selectbox("O que é?", ["Conta", "Cliente"])
-        l_nom = col_l2.text_input("Descrição/Nome")
-        l_val = col_l1.number_input("Valor R$", min_value=0.0)
-        l_ven = col_l2.text_input("Data de Vencimento")
-        if st.form_submit_button("Adicionar Lembrete"):
-            nova_lem = pd.DataFrame([{"Data": get_data_hora(), "Nome": l_nom, "Vencimento": l_ven, "Valor": l_val, "Categoria": l_cat}])
-            if salvar_dados_no_google("Lembretes", pd.concat([df_lem, nova_lem], ignore_index=True)): st.rerun()
-    st.divider()
+    st.subheader("📅 Lembretes")
+    with st.form("f_lem"):
+        lc, ln, lv, lval = st.selectbox("Tipo", ["Conta", "Cliente"]), st.text_input("Descrição"), st.text_input("Vencimento"), st.number_input("Valor")
+        if st.form_submit_button("Agendar"):
+            nl = pd.DataFrame([{"Data": get_data_hora(), "Nome": ln, "Vencimento": lv, "Valor": lval, "Categoria": lc}])
+            if salvar_dados_no_google("Lembretes", pd.concat([df_lem, nl], ignore_index=True)): st.rerun()
     st.dataframe(df_lem, use_container_width=True, hide_index=True)
+
+with tabs[5]: # AQUISIÇÕES (RESTRIÇÃO DE SIMPLIFICAÇÃO: FUNÇÃO COMPLETA)
+    st.subheader("📦 Registro de Aquisições / Insumos")
+    with st.form("f_ins"):
+        i_desc = st.text_input("Descrição da Aquisição (Ex: Frete, Borracha, Tiras)")
+        i_val = st.number_input("Valor Gasto (R$)", min_value=0.0)
+        if st.form_submit_button("Registrar Aquisição"):
+            if i_desc:
+                nova_aq = pd.DataFrame([{"Data": get_data_hora(), "Descricao": i_desc, "Valor": i_val}])
+                if salvar_dados_no_google("Insumos", pd.concat([df_ins, nova_aq], ignore_index=True)):
+                    # Também registra no histórico para bater o caixa
+                    log_aq = pd.DataFrame([{"Data": get_data_hora(), "Cliente": "SAÍDA/INSUMO", "Resumo": i_desc, "Valor Total": -i_val, "Status Pagto": "Pago"}])
+                    salvar_dados_no_google("Pedidos", pd.concat([df_ped, log_aq], ignore_index=True))
+                    st.success("Aquisição registrada e lançada no histórico!")
+                    st.rerun()
+    st.divider()
+    st.write("📊 **Lista de Aquisições**")
+    st.dataframe(df_ins, use_container_width=True, hide_index=True)

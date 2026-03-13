@@ -5,7 +5,7 @@ from streamlit_gsheets import GSheetsConnection
 import time
 
 # --- 1. CONFIGURAÇÃO ---
-st.set_page_config(page_title="Gestão Master v9.3", layout="wide", page_icon="🩴")
+st.set_page_config(page_title="Gestão - Xinelo de Dedo", layout="wide", page_icon="🩴")
 
 # --- 2. CONSTANTES ---
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1wzJZx769gfPWKwYNdPVq9i0akPaBcon6iPrlDBfQiuU/edit"
@@ -71,7 +71,11 @@ def carregar_banco_completo():
 db = carregar_banco_completo()
 df_est, df_ped, df_cli, df_ins, df_lem = db["Estoque"], db["Pedidos"], db["Clientes"], db["Insumos"], db["Lembretes"]
 
-# --- 5. BARRA LATERAL ---
+# --- 5. HEADLINE GERAL ---
+st.title("Gestão - Xinelo de Dedo")
+st.divider()
+
+# --- 6. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Painel de Controle")
     if st.button("🔄 Sincronizar Agora", use_container_width=True):
@@ -80,15 +84,23 @@ with st.sidebar:
     
     st.subheader("📌 Contas a Pagar")
     contas = df_lem[df_lem['Categoria'].astype(str).str.lower() == 'conta']
-    if not contas.empty:
+    if not contas.empty and any(str(x).strip() for x in contas['Nome']):
         for _, r in contas.iterrows():
             if str(r['Nome']).strip(): st.info(f"**{r['Nome']}**\n📅 {r['Vencimento']} | 💰 R$ {r['Valor']}")
+    else:
+        st.write("✅ Nenhuma conta prevista.")
+    
+    st.divider()
     
     st.subheader("👤 Pendências Clientes")
     pends = df_lem[df_lem['Categoria'].astype(str).str.lower() == 'cliente']
-    if not pends.empty:
+    if not pends.empty and any(str(x).strip() for x in pends['Nome']):
         for _, r in pends.iterrows():
             if str(r['Nome']).strip(): st.error(f"**{r['Nome']}**\n💰 R$ {r['Valor']}")
+    else:
+        st.write("✅ Nenhuma pendência encontrada.")
+
+    st.divider()
 
     with st.expander("🚨 Ver Alerta de Estoque"):
         alertas = [f"{row['Modelo']} ({t})" for _, row in df_est.iterrows() for t in TAMANHOS_PADRAO if converter_para_numero(row[t]) < 5]
@@ -96,7 +108,7 @@ with st.sidebar:
             for a in alertas: st.write(f"• {a}")
         else: st.success("Tudo OK!")
 
-# --- 6. ABAS ---
+# --- 7. ABAS ---
 tabs = st.tabs(["📊 Estoque", "🛒 Vendas", "👥 Clientes", "🧾 Histórico", "📅 Lembretes", "📦 Aquisição Chinelas", "🛠️ Insumos"])
 
 with tabs[0]: # ESTOQUE
@@ -154,7 +166,7 @@ with tabs[3]: # HISTÓRICO
     st.subheader("🧾 Histórico")
     df_h = df_ped[df_ped['Data'].astype(str).str.strip() != ""] if not df_ped.empty else pd.DataFrame()
     if df_h.empty:
-        st.info("🔎 Nenhum dado encontrado.")
+        st.info("🔎 Nenhum dado encontrado no histórico.")
     else:
         for idx, r in df_h.iloc[::-1].iterrows():
             with st.container(border=True):

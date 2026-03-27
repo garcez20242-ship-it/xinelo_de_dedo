@@ -101,7 +101,7 @@ with st.sidebar:
 
     st.divider()
     with st.expander("🚨 Alerta de Estoque Crítico"):
-        alertas = [f"{row['Modelo']} ({t})" for _, row in df_est.iterrows() for t in TAMANHOS_PADRAO if converter_para_numero(row[t]) < 5]
+        alertas = [f"{row['Modelo']} ({t})" for _, row in df_est.iterrows() for t in TAMANHOS_PADRAO if converter_para_numero(row[t]) < 3]
         for a in alertas: st.warning(a)
 
 # --- 7. ABAS ---
